@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Unpad Merch Hub",
+  "description": "Sebuah website pembelian merchandise kampus secara online dengan fitur pembayaran QRIS simulasi, pelacakan pengiriman otomatis, dan notifikasi status pesanan real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
