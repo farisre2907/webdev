@@ -48,16 +48,12 @@
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- MySQL Database & Service Utilities (No Firebase) -->
+    <!-- Local Browser Database Engine (No Firebase / MySQL API Server needed for GitHub Pages) -->
     <!-- Main App Logic -->
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // Configuration variables for live MySQL API integration
-        let initialMysqlApiUrl = localStorage.getItem('cmh_mysql_api_url') || '';
-        let initialMysqlApiEnabled = localStorage.getItem('cmh_mysql_api_enabled') === 'true';
-
-        console.log(`[MYSQL CONFIG] Loaded. Live Server Mode: ${initialMysqlApiEnabled ? "ON" : "OFF"}. Endpoint: ${initialMysqlApiUrl || "Simulated Local Storage"}`);
+        console.log(`[LOCAL STORAGE DATABASE] Berjalan langsung di GitHub Pages secara mandiri dan offline-first (Tidak membutuhkan server perantara).`);
 
         // Custom Icon wrapper to render Lucide CDN icons inside React
         const Icon = ({ name, size = 16, className = "" }) => {
@@ -195,6 +191,17 @@
             const [regName, setRegName] = useState('');
             const [regEmail, setRegEmail] = useState('');
             const [regRole, setRegRole] = useState('customer');
+            const [activeLoginTab, setActiveLoginTab] = useState('login'); // 'login' or 'register'
+
+            // Multi-stack playground states
+            const [techstackTab, setTechstackTab] = useState('frontend'); // 'frontend', 'backend', 'database', 'deployment'
+            const [backendEngine, setBackendEngine] = useState('laravel'); // 'laravel', 'nodejs', 'django'
+            const [databaseEngine, setDatabaseEngine] = useState('mysql'); // 'mysql', 'postgresql'
+            const [deployPlatform, setDeployPlatform] = useState('vercel'); // 'vercel', 'netlify', 'vps', 'shared'
+            const [sqlQueryInput, setSqlQueryInput] = useState('SELECT * FROM products;');
+            const [sqlQueryOutput, setSqlQueryOutput] = useState(null);
+            const [apiRouteAction, setApiRouteAction] = useState('GET /api/products');
+            const [apiConsoleOutput, setApiConsoleOutput] = useState('');
 
             // Notification hub status
             const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -280,60 +287,51 @@
             useEffect(() => { localStorage.setItem('cmh_orders', JSON.stringify(orders)); }, [orders]);
             useEffect(() => { localStorage.setItem('cmh_notifications', JSON.stringify(notifications)); }, [notifications]);
 
-            // MySQL Database API Config States & Controls
-            const [mysqlApiUrl, setMysqlApiUrlState] = useState(initialMysqlApiUrl);
-            const [mysqlApiEnabled, setMysqlApiEnabledState] = useState(initialMysqlApiEnabled);
-            const [isCheckingDb, setIsCheckingDb] = useState(false);
-            const [dbStatus, setDbStatus] = useState('unknown'); // 'unknown', 'connected', 'error'
-
-            const updateMysqlSettings = (url, enabled) => {
-                const checkedUrl = url.trim();
-                localStorage.setItem('cmh_mysql_api_url', checkedUrl);
-                localStorage.setItem('cmh_mysql_api_enabled', enabled ? 'true' : 'false');
-                setMysqlApiUrlState(checkedUrl);
-                setMysqlApiEnabledState(enabled);
-                
-                // Clear state cache to trigger updates
-                if (enabled) {
-                    triggerToast("MySQL Live REST API diaktifkan!");
-                } else {
-                    triggerToast("Beralih ke Mode Simulasi Relasional.");
+            // Local Database Control Action
+            const handleResetDatabase = () => {
+                if (window.confirm("Apakah Anda yakin ingin meriset seluruh isi database ke pengaturan awal kampus? Seluruh riwayat transaksi & akun tambahan akan dihapus.")) {
+                    localStorage.removeItem('cmh_users');
+                    localStorage.removeItem('cmh_current_user');
+                    localStorage.removeItem('cmh_categories');
+                    localStorage.removeItem('cmh_products');
+                    localStorage.removeItem('cmh_cart');
+                    localStorage.removeItem('cmh_orders');
+                    localStorage.removeItem('cmh_notifications');
+                    
+                    // Trigger reload of defaults
+                    setUsers([
+                        { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
+                        { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
+                    ]);
+                    setCategories(initialCategories);
+                    setProducts(initialProducts);
+                    setCart([]);
+                    setOrders([{
+                        id: 'ORD-8941',
+                        userId: 'USR-001',
+                        totalAmount: 160000,
+                        paymentStatus: 'Paid',
+                        orderStatus: 'Completed',
+                        createdAt: '2026-06-05T14:30:00Z',
+                        items: [
+                            { id: 'ORI-101', orderId: 'ORD-8941', productId: 'PRD-101', quantity: 1, price: 95000 },
+                            { id: 'ORI-102', orderId: 'ORD-8941', productId: 'PRD-105', quantity: 1, price: 65000 }
+                        ]
+                    }]);
+                    setNotifications([{
+                        id: 'NTF-1',
+                        userId: 'USR-001',
+                        title: 'Pesanan Selesai!',
+                        message: 'Pesanan ORD-8941 Anda telah selesai diambil. Terima kasih telah berbelanja!',
+                        isRead: false,
+                        createdAt: '2026-06-05T16:00:00Z'
+                    }]);
+                    setCurrentUser({ id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' });
+                    
+                    triggerToast("Database berhasil direset kembali ke bawaan sistem!");
+                    navigateTo('home');
                 }
             };
-
-            // Sync with MySQL on mount or context change
-            useEffect(() => {
-                const syncFromMysql = async () => {
-                    if (!mysqlApiEnabled || !mysqlApiUrl) {
-                        console.log("[MYSQL LOG] Menjalankan Simulasi Relasional MySQL.");
-                        setDbStatus('unknown');
-                        return;
-                    }
-                    try {
-                        setIsCheckingDb(true);
-                        const cleanUrl = mysqlApiUrl.replace(/\/$/, '');
-                        const res = await fetch(`${cleanUrl}/status`).catch(() => null);
-                        if (res && res.ok) {
-                            setDbStatus('connected');
-                            // Pull products
-                            const pRes = await fetch(`${cleanUrl}/api/products`).catch(() => null);
-                            if (pRes && pRes.ok) {
-                                const pData = await pRes.json();
-                                if (pData && pData.length > 0) setProducts(pData);
-                            }
-                        } else {
-                            setDbStatus('error');
-                            triggerToast("Gagal terhubung ke REST API MySQL di " + mysqlApiUrl);
-                        }
-                    } catch (err) {
-                        setDbStatus('error');
-                        console.error("MySQL Sync Error:", err);
-                    } finally {
-                        setIsCheckingDb(false);
-                    }
-                };
-                syncFromMysql();
-            }, [mysqlApiEnabled, mysqlApiUrl]);
 
             // Toast helper
             const triggerToast = (msg) => {
@@ -370,70 +368,24 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
-            // Actions: User Management (MySQL Integration & Local Storage Simulation)
-            const handleLogin = async (e) => {
+            // Actions: User Management (Client-Side Local Storage Database)
+            const handleLogin = (e) => {
                 e.preventDefault();
                 const cleanEmail = loginEmail.trim().toLowerCase();
                 
-                if (mysqlApiEnabled && mysqlApiUrl) {
-                    try {
-                        triggerToast("Menghubungi server MySQL API...");
-                        const serverUrl = mysqlApiUrl.replace(/\/$/, '');
-                        const response = await fetch(`${serverUrl}/api/auth/login`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email: cleanEmail, role: loginRole })
-                        }).catch(err => {
-                            throw new Error("Gagal menghubungi server API local: " + err.message);
-                        });
-
-                        const result = await response.json();
-                        if (response.ok && result.status === 'success') {
-                            const matched = result.user;
-                            
-                            // Keep in sync locally
-                            setUsers(prev => {
-                                if (prev.some(u => u.id === matched.id)) return prev;
-                                return [...prev, matched];
-                            });
-
-                            setCurrentUser(matched);
-                            triggerToast("Selamat datang kembali, " + matched.fullName + " (Login MySQL Server)!");
-                            addNotificationLocal(matched.id, "Login Berhasil (MySQL)", "Anda berhasil masuk menggunakan akun terverifikasi di MySQL.");
-                            navigateTo('home');
-                        } else {
-                            triggerToast(result.message || "Email salah atau peran tidak sesuai!");
-                        }
-                    } catch (err) {
-                        console.error("MySQL Live Login failed:", err);
-                        triggerToast("Gagal terhubung server, beralih ke Mode Simulasi...");
-                        
-                        // Local fallback
-                        const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
-                        if (matched) {
-                            setCurrentUser(matched);
-                            triggerToast("Login Berhasil (Sesi Lokal): " + matched.fullName);
-                            navigateTo('home');
-                        } else {
-                            triggerToast("Error: " + err.message);
-                        }
-                    }
+                console.log(`[LOCAL DB ENGINE] SELECT * FROM users WHERE email = '${cleanEmail}' AND role = '${loginRole}';`);
+                const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
+                if (matched) {
+                    setCurrentUser(matched);
+                    triggerToast("Selamat datang kembali, " + matched.fullName + "!");
+                    addNotificationLocal(matched.id, "Login Berhasil", "Masuk berhasil (Database Lokal Terintegrasi).");
+                    navigateTo('home');
                 } else {
-                    // Simulated Local MySQL Engine
-                    console.log(`[SQL ENGINE] EXECUTING QUERY: SELECT * FROM users WHERE LOWER(email) = '${cleanEmail}' AND role = '${loginRole}' LIMIT 1;`);
-                    const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
-                    if (matched) {
-                        setCurrentUser(matched);
-                        triggerToast("Selamat datang kembali, " + matched.fullName + "!");
-                        addNotificationLocal(matched.id, "Login Berhasil", "Masuk berhasil (Simulasi Tabel Relasional MySQL).");
-                        navigateTo('home');
-                    } else {
-                        triggerToast("Email salah atau peran tidak sesuai!");
-                    }
+                    triggerToast("Email salah atau peran tidak sesuai!");
                 }
             };
 
-            const handleRegister = async (e) => {
+            const handleRegister = (e) => {
                 e.preventDefault();
                 const cleanEmail = regEmail.trim().toLowerCase();
                 const cleanName = regName.trim();
@@ -443,61 +395,28 @@
                     return;
                 }
 
-                if (mysqlApiEnabled && mysqlApiUrl) {
-                    try {
-                        triggerToast("Mendaftarkan akun ke server MySQL...");
-                        const serverUrl = mysqlApiUrl.replace(/\/$/, '');
-                        const response = await fetch(`${serverUrl}/api/auth/register`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ fullName: cleanName, email: cleanEmail, role: regRole })
-                        }).catch(err => {
-                            throw new Error("Gagal mendaftar ke server API: " + err.message);
-                        });
-
-                        const result = await response.json();
-                        if (response.ok && result.status === 'success') {
-                            const newU = result.user;
-                            setUsers(prev => {
-                                if (prev.some(u => u.id === newU.id)) return prev;
-                                return [...prev, newU];
-                            });
-                            setCurrentUser(newU);
-                            triggerToast("Registrasi Berhasil di Database MySQL!");
-                            addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", akun Anda berhasil disimpan di database MySQL.");
-                            navigateTo('home');
-                        } else {
-                            triggerToast(result.message || "Pendaftaran gagal!");
-                        }
-                    } catch (err) {
-                        console.error("MySQL Live Register failed:", err);
-                        triggerToast("Koneksi API Gagal: " + err.message);
-                    }
-                } else {
-                    // Simulated Local MySQL Engine
-                    console.log(`[SQL ENGINE] EXECUTING CHECK: SELECT id FROM users WHERE LOWER(email) = '${cleanEmail}';`);
-                    const exists = users.find(u => u.email.toLowerCase() === cleanEmail);
-                    if (exists) {
-                        triggerToast("E-mail sudah terdaftar di database local!");
-                        return;
-                    }
-
-                    const newUserId = 'USR-' + Date.now();
-                    const newU = {
-                        id: newUserId,
-                        fullName: cleanName,
-                        email: cleanEmail,
-                        role: regRole
-                    };
-
-                    console.log(`[SQL ENGINE] EXECUTING INSERT: INSERT INTO users (id, fullName, email, role) VALUES ('${newUserId}', '${cleanName}', '${cleanEmail}', '${regRole}');`);
-                    
-                    setUsers(prev => [...prev, newU]);
-                    setCurrentUser(newU);
-                    triggerToast("Pendaftaran Berhasil! Akun disimpan.");
-                    addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
-                    navigateTo('home');
+                console.log(`[LOCAL DB ENGINE] SELECT id FROM users WHERE email = '${cleanEmail}';`);
+                const exists = users.find(u => u.email.toLowerCase() === cleanEmail);
+                if (exists) {
+                    triggerToast("E-mail sudah terdaftar di database local!");
+                    return;
                 }
+
+                const newUserId = 'USR-' + Date.now();
+                const newU = {
+                    id: newUserId,
+                    fullName: cleanName,
+                    email: cleanEmail,
+                    role: regRole
+                };
+
+                console.log(`[LOCAL DB ENGINE] INSERT INTO users (id, fullName, email, role) VALUES ('${newUserId}', '${cleanName}', '${cleanEmail}', '${regRole}');`);
+                
+                setUsers(prev => [...prev, newU]);
+                setCurrentUser(newU);
+                triggerToast("Pendaftaran Berhasil! Akun terdaftar.");
+                addNotificationLocal(newUserId, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
+                navigateTo('home');
             };
 
             // Actions: Cart operations
@@ -751,16 +670,11 @@
                             </div>
 
                             {/* Center Menu Navigation */}
-                            <nav className="hidden md:flex space-x-6 text-sm font-semibold text-slate-300">
+                            <nav className="hidden md:flex space-x-5 text-sm font-semibold text-slate-300">
                                 <button onClick={() => navigateTo('home')} className={`hover:text-white transition ${tab === 'home' ? 'text-amber-400' : ''}`}>Beranda</button>
                                 <button onClick={() => navigateTo('catalog')} className={`hover:text-white transition ${tab === 'catalog' ? 'text-amber-400' : ''}`}>Katalog</button>
                                 <button onClick={() => navigateTo('history')} className={`hover:text-white transition ${tab === 'history' ? 'text-amber-400' : ''}`}>Pesanan Saya</button>
-                                {currentUser?.role === 'staff' && (
-                                    <button onClick={() => navigateTo('staff')} className={`hover:text-white font-bold transition flex items-center space-x-1 ${tab === 'staff' ? 'text-indigo-400' : 'text-indigo-300'}`}>
-                                        <Icon name="Briefcase" size={14} />
-                                        <span>Staff Workspace</span>
-                                    </button>
-                                )}
+
                             </nav>
 
                             {/* Right Panel Actions */}
@@ -1476,6 +1390,590 @@
                             </div>
                         )}
 
+                        {/* PAGE 10: REGISTER & LOGIN OVERLAY (Sign In & Sign Up) */}
+                        {tab === 'login' && (
+                            <div className="max-w-md mx-auto px-4 py-16 text-left">
+                                <div className="bg-white border border-slate-100 rounded-3xl p-8 shadow-2xl space-y-6 text-slate-850">
+                                    {/* App Icon branding */}
+                                    <div className="flex items-center space-x-3 justify-center mb-2">
+                                        <div className="h-10 w-10 rounded-2xl bg-slate-900 text-amber-400 flex items-center justify-center font-bold text-lg shadow-md font-mono">
+                                            U
+                                        </div>
+                                        <div className="text-left font-sans">
+                                            <h2 className="font-extrabold text-slate-950 font-display leading-none text-base">Unpad Merch Hub</h2>
+                                            <span className="text-[10px] text-slate-400 font-mono font-bold tracking-widest uppercase block mt-1">DATABASE INTEGRATION HUB</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Tabs */}
+                                    <div className="flex bg-slate-100 p-1 rounded-2xl">
+                                        <button 
+                                            onClick={() => setActiveLoginTab('login')}
+                                            className={`flex-1 py-2 text-xs font-bold font-sans rounded-xl transition ${activeLoginTab === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                        >
+                                            Masuk (Sign In)
+                                        </button>
+                                        <button 
+                                            onClick={() => setActiveLoginTab('register')}
+                                            className={`flex-1 py-2 text-xs font-bold font-sans rounded-xl transition ${activeLoginTab === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                                        >
+                                            Daftar Baru (Sign Up)
+                                        </button>
+                                    </div>
+
+                                    {activeLoginTab === 'login' ? (
+                                        /* LOGIN FORM */
+                                        <form onSubmit={handleLogin} className="space-y-4">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[11px] font-mono tracking-wider font-bold text-slate-400 block uppercase">E-Mail Terdaftar</label>
+                                                <div className="relative">
+                                                    <Icon name="Mail" size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input 
+                                                        type="email"
+                                                        required
+                                                        placeholder="contoh: customer@campus.com"
+                                                        value={loginEmail}
+                                                        onChange={e => setLoginEmail(e.target.value)}
+                                                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-hidden font-sans transition"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <label className="text-[11px] font-mono tracking-wider font-bold text-slate-400 block uppercase">Akses Peran (Role)</label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setLoginRole('customer')}
+                                                        className={`border py-2.5 rounded-xl font-bold font-sans text-xs flex items-center justify-center space-x-2 transition ${loginRole === 'customer' ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-extrabold' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                                                    >
+                                                        <Icon name="Users" size={14} />
+                                                        <span>Mahasiswa</span>
+                                                    </button>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setLoginRole('staff')}
+                                                        className={`border py-2.5 rounded-xl font-bold font-sans text-xs flex items-center justify-center space-x-2 transition ${loginRole === 'staff' ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-extrabold' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                                                    >
+                                                        <Icon name="Briefcase" size={14} />
+                                                        <span>Staff Admin</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                type="submit"
+                                                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-3.5 rounded-xl text-xs transition uppercase tracking-wide cursor-pointer flex items-center justify-center space-x-2 shadow-lg"
+                                            >
+                                                <Icon name="LogIn" size={14} />
+                                                <span>Masuk Sistem</span>
+                                            </button>
+
+                                            <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl">
+                                                <p className="text-[10px] text-amber-800 leading-normal font-sans">
+                                                    💡 <strong>Akun Demo Cepat:</strong><br />
+                                                    &middot; Mahasiswa: <strong className="font-mono">customer@campus.com</strong><br />
+                                                    &middot; Staff Admin: <strong className="font-mono">staff@campus.com</strong>
+                                                </p>
+                                            </div>
+                                        </form>
+                                    ) : (
+                                        /* REGISTER FORM */
+                                        <form onSubmit={handleRegister} className="space-y-4">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[11px] font-mono tracking-wider font-bold text-slate-400 block uppercase">Nama Lengkap Mahasiswa</label>
+                                                <div className="relative">
+                                                    <Icon name="User" size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input 
+                                                        type="text"
+                                                        required
+                                                        placeholder="contoh: Gibran Rakabuming"
+                                                        value={regName}
+                                                        onChange={e => setRegName(e.target.value)}
+                                                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-hidden font-sans transition"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <label className="text-[11px] font-mono tracking-wider font-bold text-slate-400 block uppercase">Alamat Email Kampus</label>
+                                                <div className="relative">
+                                                    <Icon name="Mail" size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                    <input 
+                                                        type="email"
+                                                        required
+                                                        placeholder="contoh: gibran@student.unpad.ac.id"
+                                                        value={regEmail}
+                                                        onChange={e => setRegEmail(e.target.value)}
+                                                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-hidden font-sans transition"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                <label className="text-[11px] font-mono tracking-wider font-bold text-slate-400 block uppercase">Daftar Sebagai Peran</label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setRegRole('customer')}
+                                                        className={`border py-2.5 rounded-xl font-bold font-sans text-xs flex items-center justify-center space-x-2 transition ${regRole === 'customer' ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-extrabold' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                                                    >
+                                                        <Icon name="Users" size={14} />
+                                                        <span>Mahasiswa</span>
+                                                    </button>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => setRegRole('staff')}
+                                                        className={`border py-2.5 rounded-xl font-bold font-sans text-xs flex items-center justify-center space-x-2 transition ${regRole === 'staff' ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-extrabold' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                                                    >
+                                                        <Icon name="Briefcase" size={14} />
+                                                        <span>Staff Admin</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                type="submit"
+                                                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl text-xs transition uppercase tracking-wide cursor-pointer flex items-center justify-center space-x-2 shadow-lg"
+                                            >
+                                                <Icon name="UserPlus" size={14} />
+                                                <span>Buat & Simpan Akun</span>
+                                            </button>
+
+                                            <p className="text-[10px] text-slate-400 leading-normal text-center">
+                                                Registrasi real-time langsung termutasi ke tabel database <span className="font-mono text-indigo-600">`users`</span> di Web LocalStorage. Tanpa perantara API eksternal lambat!
+                                            </p>
+                                        </form>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* PAGE 11: MULTI-STACK & DEPLOYMENT BLUEPRINT HUB */}
+                        {tab === 'techstack' && (
+                            <div className="max-w-7xl mx-auto px-4 py-8 text-left space-y-8">
+                                <div className="text-left space-y-2 border-b pb-4">
+                                    <span className="text-[10px] bg-slate-900 text-amber-400 font-mono tracking-widest font-bold block px-2.5 py-1 rounded w-max uppercase select-none leading-none">ENTERPRISE DEVELOPMENT CONSOLE</span>
+                                    <h1 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-none mt-2">Arsitektur Integrasi Multi-Stack</h1>
+                                    <p className="text-xs text-slate-500 font-sans">Visualisasi, sandbox kode, eksekusi query SQL MySQL/PostgreSQL, serta instruksi Deployment serverless & self-managed.</p>
+                                </div>
+
+                                {/* Dynamic categories filter tab row */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 select-none">
+                                    {[
+                                        { id: 'frontend', name: '🌐 FRONT-END CANVAS', desc: 'HTML, CSS, Tailwind CSS, Vanilla JS' },
+                                        { id: 'backend', name: '⚙️ BACK-END ENGINES', desc: 'PHP/Laravel, Node.js, Python/Django' },
+                                        { id: 'database', name: '🗄️ DATABASE REPOSITORIES', desc: 'DDL Schemas, Live SQL Sandbox' },
+                                        { id: 'deployment', name: '🚀 DEPLOYMENT RUNBOOK', desc: 'Vercel, Netlify, VPS, Shared Hosting' }
+                                    ].map(sub => (
+                                        <button 
+                                            key={sub.id}
+                                            onClick={() => setTechstackTab(sub.id)}
+                                            className={`p-4 rounded-2xl border text-left cursor-pointer transition flex flex-col justify-between h-24 ${techstackTab === sub.id ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-850'}`}
+                                        >
+                                            <span className="font-extrabold text-xs tracking-wider block font-sans">{sub.name}</span>
+                                            <span className={`text-[10px] mt-2 block leading-snug ${techstackTab === sub.id ? 'text-slate-300' : 'text-slate-500'}`}>{sub.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* SUB-TAB LAYOUTS PANEL */}
+                                <div className="bg-white border rounded-3xl p-6 shadow-xs whitespace-normal min-h-[400px]">
+                                    
+                                    {/* PANEL 1: FRONT-END */}
+                                    {techstackTab === 'frontend' && (
+                                        <div className="space-y-6">
+                                            <div className="space-y-1">
+                                                <h3 className="text-lg font-black text-slate-900">1. Media Canvas Front-End Utama</h3>
+                                                <p className="text-xs text-slate-500">Unpad Merch Hub dirancang dengan framework HTML5, Tailwind CSS, dan Vanilla React SPA yang cepat.</p>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                                                <div className="lg:col-span-4 bg-slate-50 border p-5 rounded-2xl space-y-4">
+                                                    <h4 className="font-mono text-xs font-bold text-slate-400 tracking-wider">TEKNOLOGI STACK PILIHAN</h4>
+                                                    <div className="space-y-3">
+                                                        <div className="p-3 bg-white border border-slate-100 rounded-xl">
+                                                            <strong className="text-xs text-slate-805 text-slate-800">HTML5 Semantic Canvas</strong>
+                                                            <p className="text-[10px] text-slate-500 leading-normal mt-1">Menggunakan standard markup HTML terbaru untuk accessibility yang andal.</p>
+                                                        </div>
+                                                        <div className="p-3 bg-white border border-slate-100 rounded-xl">
+                                                            <strong className="text-xs text-indigo-650">Tailwind CSS Standard Utility</strong>
+                                                            <p className="text-[10px] text-slate-500 leading-normal mt-1">Memproses grid layouts, transisi, responsive prefix, and borders secara real-time.</p>
+                                                        </div>
+                                                        <div className="p-3 bg-white border border-slate-100 rounded-xl">
+                                                            <strong className="text-xs text-amber-500">Universal JavaScript (React / ES6)</strong>
+                                                            <p className="text-[10px] text-slate-500 leading-normal mt-1">Hydration dynamic yang mengikat state reaktif, event click, dan manipulasi array secara asinkron.</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="lg:col-span-8 space-y-4">
+                                                    <div className="bg-slate-900 rounded-2xl overflow-hidden shadow-md text-left">
+                                                        <div className="bg-slate-800 px-4 py-2 flex items-center justify-between border-b border-slate-750 text-slate-400 font-mono text-[9px] select-none">
+                                                            <span>STRUCTURE CODE SNIPPET (Reactive SPA Router)</span>
+                                                            <span className="bg-amber-400/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[8px]">JAVASCRIPT SPA</span>
+                                                        </div>
+                                                        <pre className="p-4 text-slate-300 font-mono text-[10px] leading-relaxed overflow-x-auto min-h-[160px] max-h-72 opacity-95">
+{`// Client-Side Router Implementation in React / Vanilla JS
+const [tab, setTab] = useState(\'home\');
+const [tabParams, setTabParams] = useState({});
+
+const navigateTo = (newTab, params = {}) => {
+    setTab(newTab);
+    setTabParams(params);
+    window.scrollTo({ top: 0, behavior: \'smooth\' });
+};
+
+// Conditional rendering block
+return (
+    <main className="flex-1">
+        {tab === \'home\' && <HomeView />}
+        {tab === \'catalog\' && <CatalogView />}
+        {tab === \'detail\' && <DetailView itemId={tabParams.id} />}
+    </main>
+);`}
+                                                        </pre>
+                                                    </div>
+                                                    
+                                                    <div className="bg-indigo-50 border border-indigo-120 border-indigo-100 p-4 rounded-2xl flex items-start space-x-3 text-xs leading-relaxed">
+                                                        <Icon name="Info" size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <strong className="text-indigo-800 block">Mengapa Menggunakan Model Single Page Application?</strong>
+                                                            <p className="text-indigo-705 text-slate-600 mt-1">
+                                                                Transisi halaman terjadi secara instan tanpa membebani browser untuk mengunduh ulang aset css/js. Ini memberikan performa load instant yang sempurna bahkan di bawah sinyal smartphone kampus yang lambat.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* PANEL 2: BACK-END */}
+                                    {techstackTab === 'backend' && (
+                                        <div className="space-y-6">
+                                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-3 gap-2">
+                                                <div>
+                                                    <h3 className="text-lg font-black text-slate-900">2. Back-End Simulated Playground</h3>
+                                                    <p className="text-xs text-slate-500">Pilih mesin backend favorit Anda untuk mempelajari penanganan API Route request.</p>
+                                                </div>
+                                                <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 select-none text-xs">
+                                                    <button onClick={() => setBackendEngine('laravel')} className={`px-3 py-1.5 rounded-lg font-bold transition ${backendEngine === 'laravel' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}>PHP (Laravel)</button>
+                                                    <button onClick={() => setBackendEngine('nodejs')} className={`px-3 py-1.5 rounded-lg font-bold transition ${backendEngine === 'nodejs' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}>Node.js</button>
+                                                    <button onClick={() => setBackendEngine('django')} className={`px-3 py-1.5 rounded-lg font-bold transition ${backendEngine === 'django' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}>Python (Django)</button>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                                <div className="lg:col-span-4 bg-slate-50 border p-5 rounded-2xl space-y-4">
+                                                    <h4 className="font-mono text-[10px] font-bold text-slate-400 tracking-wider">SIMULATOR API REQUEST</h4>
+                                                    <div className="space-y-4">
+                                                        <div className="space-y-1">
+                                                            <label className="text-[9px] font-mono tracking-wider font-bold text-slate-400 block uppercase">PILIH ROUTE ENDPOINT</label>
+                                                            <select 
+                                                                value={apiRouteAction} 
+                                                                onChange={e => setApiRouteAction(e.target.value)} 
+                                                                className="w-full bg-white border rounded-xl px-3 py-2 text-xs focus:outline-hidden font-mono"
+                                                            >
+                                                                <option value="GET /api/products">GET /api/products (Fetch Catalog)</option>
+                                                                <option value="POST /api/auth/register">POST /api/auth/register (Create User)</option>
+                                                                <option value="POST /api/orders">POST /api/orders (Submit Cartesian Queue)</option>
+                                                            </select>
+                                                        </div>
+
+                                                        <button 
+                                                            onClick={() => {
+                                                                let traceHeader = '';
+                                                                let respBody = {};
+                                                                const ts = new Date().toISOString();
+                                                                
+                                                                if (backendEngine === 'laravel') {
+                                                                    traceHeader = `[LARAVEL REQ PROCESSOR] Incoming ${apiRouteAction}\n`;
+                                                                    traceHeader += `[INFO] Route file: routes/api.php dipanggil\n`;
+                                                                    traceHeader += `[INFO] Call to: App\\Http\\Controllers\\MerchandiseController@handler\n`;
+                                                                    traceHeader += `[SQL QUERY] select * from \`products\` where \`deleted_at\` is null\n`;
+                                                                    traceHeader += `[LARAVEL STATUS] 200 SUCCESS - Processed in 12ms\n`;
+                                                                } else if (backendEngine === 'nodejs') {
+                                                                    traceHeader = `[NODEJS-EXPRESS TRACE] HTTP request matched registered Router \n`;
+                                                                    traceHeader += `[INFO] Entry point: server.js -> ExpressJS middleware loader\n`;
+                                                                    traceHeader += `[CORS] Request allowed by cors() rule\n`;
+                                                                    traceHeader += `[PG-POOL] Connecting client from client pool -> Query products...\n`;
+                                                                    traceHeader += `[ENGINE STATUS] 200 OK - Sent application/json response\n`;
+                                                                } else {
+                                                                    traceHeader = `[DJANGO REST ENGINE] Resolving urls.py matching routing pattern...\n`;
+                                                                    traceHeader += `[INFO] Triggering Class-View: MerchandiseViews.as_view()\n`;
+                                                                    traceHeader += `[ORM DATABASE] models.Product.objects.all().select_related(\'category\')\n`;
+                                                                    traceHeader += `[STATUS] HTTP/1.1 200 OK - Serialized to JSON via REST Serializer\n`;
+                                                                }
+
+                                                                if (apiRouteAction.includes('products')) {
+                                                                    respBody = products.slice(0, 3).map(p => ({
+                                                                        id: p.id,
+                                                                        categoryId: p.categoryId,
+                                                                        productName: p.productName,
+                                                                        price: p.price,
+                                                                        stock: p.stock
+                                                                    }));
+                                                                } else if (apiRouteAction.includes('register')) {
+                                                                    respBody = {
+                                                                        status: 'success',
+                                                                        message: 'Akun baru tersimpan di DB!',
+                                                                        user: {
+                                                                            id: 'USR-8941',
+                                                                            fullName: regName || 'Faris Rifqy Demo',
+                                                                            email: regEmail || 'student@campus.com',
+                                                                            role: regRole,
+                                                                            createdAt: ts
+                                                                        }
+                                                                    };
+                                                                } else {
+                                                                    respBody = {
+                                                                        status: 'success',
+                                                                        message: 'Checkout lunas terproses di database!',
+                                                                        orderId: 'ORD-' + Math.floor(1000 + Math.random()*9000),
+                                                                        totalAmount: 160000,
+                                                                        paymentStatus: 'Paid',
+                                                                        processedAt: ts
+                                                                    };
+                                                                }
+
+                                                                setApiConsoleOutput(`${traceHeader}\nRESPONSE PAYLOAD:\n${JSON.stringify(respBody, null, 4)}`);
+                                                                triggerToast("API call simulated successfully via " + backendEngine.toUpperCase() + "!");
+                                                            }}
+                                                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs text-center cursor-pointer transition uppercase tracking-wide"
+                                                        >
+                                                            KIRIM REQUEST SIMULTAN
+                                                        </button>
+
+                                                        <div className="text-[10px] text-slate-400 font-medium">
+                                                            💡 <em>Tekan tombol untuk mengirim test header. Konten response disinkronkan secara real-time dari state database lokal Anda!</em>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="lg:col-span-8 space-y-4">
+                                                    <div className="bg-slate-950 rounded-2xl overflow-hidden shadow-lg border border-slate-900 text-left">
+                                                        <div className="bg-slate-900 px-4 py-2 flex items-center justify-between text-slate-400 font-mono text-[9px] select-none border-b border-slate-850">
+                                                            <span>MOCK CONSOLE TERMINAL OUTPUT ({backendEngine.toUpperCase()})</span>
+                                                            <div className="flex space-x-1">
+                                                                <span className="h-2.5 w-2.5 bg-rose-500 rounded-full inline-block"></span>
+                                                                <span className="h-2.5 w-2.5 bg-amber-500 rounded-full inline-block"></span>
+                                                                <span className="h-2.5 w-2.5 bg-emerald-500 rounded-full inline-block"></span>
+                                                            </div>
+                                                        </div>
+                                                        <pre className="p-4 text-emerald-400 font-mono text-[10px] leading-relaxed overflow-y-auto h-72 text-left bg-slate-950">
+{apiConsoleOutput || `// Di sini, Anda dapat melakukan simulasi API request ke controller backend.\n// Pilih route pada panel kiri dan mulailah mengirim request header untuk menirukan respons nyata Laravel, Node.js, atau Django.`}
+                                                        </pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* PANEL 3: DATABASE */}
+                                    {techstackTab === 'database' && (
+                                        <div className="space-y-6">
+                                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-3 gap-2">
+                                                <div>
+                                                    <h3 className="text-lg font-black text-slate-900">3. Live SQL Query Terminal</h3>
+                                                    <p className="text-xs text-slate-500 font-sans">Simulasikan eksekusi perintah DML SQL di database relational MySQL atau PostgreSQL.</p>
+                                                </div>
+                                                <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 select-none text-xs">
+                                                    <button onClick={() => setDatabaseEngine('mysql')} className={`px-3 py-1.5 rounded-lg font-bold transition ${databaseEngine === 'mysql' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}>MySQL Database</button>
+                                                    <button onClick={() => setDatabaseEngine('postgresql')} className={`px-3 py-1.5 rounded-lg font-bold transition ${databaseEngine === 'postgresql' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}>PostgreSQL Database</button>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                                <div className="lg:col-span-5 bg-slate-50 border p-5 rounded-2xl space-y-4">
+                                                    <h4 className="font-mono text-[10px] font-bold text-slate-400 tracking-wider">SQL QUERY COMMAND</h4>
+                                                    
+                                                    <div className="space-y-3 font-sans">
+                                                        <div className="space-y-1.5">
+                                                            <span className="text-[10px] font-mono font-bold text-slate-400 block uppercase">Pilih Template SQL Query Rujukan:</span>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                <button onClick={() => setSqlQueryInput('SELECT id, fullName, email, role FROM users;')} className="bg-white border rounded px-2 py-1 text-[10px] font-mono text-slate-650 hover:bg-slate-100 transition truncate text-left">SELECT * FROM users;</button>
+                                                                <button onClick={() => setSqlQueryInput('SELECT id, productName, price, stock FROM products;')} className="bg-white border rounded px-2 py-1 text-[10px] font-mono text-slate-650 hover:bg-slate-100 transition truncate text-left">SELECT * FROM products;</button>
+                                                                <button onClick={() => setSqlQueryInput('SELECT id, categoryName, description FROM categories;')} className="bg-white border rounded px-2 py-1 text-[10px] font-mono text-slate-650 hover:bg-slate-100 transition truncate text-left">SELECT * FROM categories;</button>
+                                                                <button onClick={() => setSqlQueryInput('SELECT id, totalAmount, paymentStatus, orderStatus FROM orders;')} className="bg-white border rounded px-2 py-1 text-[10px] font-mono text-slate-650 hover:bg-slate-100 transition truncate text-left">SELECT * FROM orders;</button>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="space-y-1.5">
+                                                            <span className="text-[10px] font-mono font-semibold text-slate-400 block uppercase">Terminal SQL Console:</span>
+                                                            <textarea 
+                                                                rows={4}
+                                                                value={sqlQueryInput}
+                                                                onChange={e => setSqlQueryInput(e.target.value)}
+                                                                className="w-full bg-slate-900 border text-amber-300 font-mono p-3 rounded-xl text-[11px] focus:outline-hidden leading-relaxed block"
+                                                            />
+                                                        </div>
+
+                                                        <button 
+                                                            onClick={() => {
+                                                                const q = sqlQueryInput.toLowerCase().trim();
+                                                                let results = null;
+                                                                let columns = [];
+                                                                
+                                                                if (q.includes('users') || q.includes('user')) {
+                                                                    columns = ['id', 'fullName', 'email', 'role'];
+                                                                    results = users.map(u => ({ id: u.id, fullName: u.fullName, email: u.email, role: u.role }));
+                                                                } else if (q.includes('products') || q.includes('product')) {
+                                                                    columns = ['id', 'productName', 'price', 'stock'];
+                                                                    results = products.map(p => ({ id: p.id, productName: p.productName, price: `Rp ${p.price.toLocaleString()}`, stock: p.stock }));
+                                                                } else if (q.includes('categories') || q.includes('category')) {
+                                                                    columns = ['id', 'categoryName', 'description'];
+                                                                    results = categories.map(c => ({ id: c.id, categoryName: c.categoryName, description: c.description.slice(0, 45) + '...' }));
+                                                                } else if (q.includes('orders') || q.includes('order')) {
+                                                                    columns = ['id', 'totalAmount', 'paymentStatus', 'orderStatus'];
+                                                                    results = orders.map(o => ({ id: o.id, totalAmount: `Rp ${o.totalAmount.toLocaleString()}`, paymentStatus: o.paymentStatus, orderStatus: o.orderStatus }));
+                                                                }
+
+                                                                if (results) {
+                                                                    setSqlQueryOutput({ columns, rows: results, rawQuery: sqlQueryInput });
+                                                                    triggerToast("SQL Query executed successfully in local memory!");
+                                                                } else {
+                                                                    setSqlQueryOutput({ error: "Syntax Error or Table Not Found! Mohon gunakan template query di atas." });
+                                                                    triggerToast("SQL Query failed!");
+                                                                }
+                                                            }}
+                                                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs text-center cursor-pointer transition uppercase tracking-wide"
+                                                        >
+                                                            EKSEKUSI PERINTAH SQL
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="lg:col-span-7 space-y-4">
+                                                    <div className="bg-white border rounded-2xl p-5 shadow-xs whitespace-normal space-y-3 min-h-[150px]">
+                                                        <h4 className="font-mono text-[10px] font-bold text-slate-400 tracking-wider">TABEL KELUARAN SQL (QUERY RESULSET)</h4>
+                                                        
+                                                        {!sqlQueryOutput ? (
+                                                            <p className="text-slate-400 text-xs italic text-left py-12 text-center">Silakan masukkan perintah SQL dan klik 'Eksekusi' untuk mengaktifkan parser query.</p>
+                                                        ) : sqlQueryOutput.error ? (
+                                                            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl font-mono leading-relaxed text-left">
+                                                                ⚠️ {sqlQueryOutput.error}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-4 text-left">
+                                                                <div className="text-[10px] bg-slate-100 p-2 rounded-lg font-mono text-slate-600">
+                                                                    Executed Query: <strong className="text-slate-800">{sqlQueryOutput.rawQuery}</strong> &middot; Rows returned: <strong className="text-slate-800">{sqlQueryOutput.rows.length}</strong>
+                                                                </div>
+                                                                <div className="border rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                                                                    <table className="w-full text-[10px] sm:text-xs font-mono border-collapse whitespace-nowrap">
+                                                                        <thead className="bg-slate-900 text-white text-[10px] uppercase tracking-wide">
+                                                                            <tr>
+                                                                                {sqlQueryOutput.columns.map((col, idx) => (
+                                                                                    <th key={idx} className="px-3 py-2 text-left font-bold">{col}</th>
+                                                                                ))}
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-slate-100">
+                                                                            {sqlQueryOutput.rows.map((row, rIdx) => (
+                                                                                <tr key={rIdx} className="hover:bg-slate-50 transition">
+                                                                                    {sqlQueryOutput.columns.map((col, cIdx) => (
+                                                                                        <td key={cIdx} className="px-3 py-1.5 text-slate-700 truncate max-w-[200px]">{row[col]}</td>
+                                                                                    ))}
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex gap-2">
+                                                        <a href="schema.sql" download="schema.sql" className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/40 font-bold py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition text-xs">
+                                                            <Icon name="Download" size={12} />
+                                                            <span>Unduh `.sql` MySQL</span>
+                                                        </a>
+                                                        <a href="src/blueprints/postgresql_schema.sql" download="postgresql_schema.sql" className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200/40 font-bold py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition text-xs">
+                                                            <Icon name="Download" size={12} />
+                                                            <span>Unduh PostgreSQL</span>
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* PANEL 4: DEPLOYMENT */}
+                                    {techstackTab === 'deployment' && (
+                                        <div className="space-y-6">
+                                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b pb-3 gap-2">
+                                                <div>
+                                                    <h3 className="text-lg font-black text-slate-900">4. Multi-Platforms Deployment Blueprint</h3>
+                                                    <p className="text-xs text-slate-500">Runbook lengkap rilis production untuk berbagai hosting provider.</p>
+                                                </div>
+                                                <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 select-none text-xs">
+                                                    <button onClick={() => setDeployPlatform('vercel')} className={`px-2.5 py-1.5 rounded-lg font-bold transition ${deployPlatform === 'vercel' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Vercel</button>
+                                                    <button onClick={() => setDeployPlatform('netlify')} className={`px-2.5 py-1.5 rounded-lg font-bold transition ${deployPlatform === 'netlify' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Netlify</button>
+                                                    <button onClick={() => setDeployPlatform('vps')} className={`px-2.5 py-1.5 rounded-lg font-bold transition ${deployPlatform === 'vps' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Ubuntu VPS</button>
+                                                    <button onClick={() => setDeployPlatform('shared')} className={`px-2.5 py-1.5 rounded-lg font-bold transition ${deployPlatform === 'shared' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Shared cPanel</button>
+                                                </div>
+                                            </div>
+
+                                            {deployPlatform === 'vercel' && (
+                                                <div className="space-y-4 text-xs sm:text-sm text-left">
+                                                    <h4 className="font-extrabold text-slate-900">Deployment Vercel Serverless (React / Node Stack)</h4>
+                                                    <p className="text-slate-600 leading-relaxed">Vercel sangat cocok untuk hosting modular SPA. Kecepatannya dioptimalkan oleh jaringan edge global (CDN).</p>
+                                                    <div className="bg-slate-900 rounded-xl p-4 font-mono text-[10px] text-slate-350 text-slate-300 leading-relaxed space-y-1">
+                                                        <p className="text-slate-500"># 1. Install Vercel CLI & Jalankan Deployment</p>
+                                                        <p className="text-white">npm install -g vercel</p>
+                                                        <p className="text-white">vercel login</p>
+                                                        <p className="text-white">vercel --prod</p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {deployPlatform === 'netlify' && (
+                                                <div className="space-y-4 text-xs sm:text-sm text-left">
+                                                    <h4 className="font-extrabold text-slate-900">Deployment Netlify Continuous Integration</h4>
+                                                    <p className="text-slate-600 leading-relaxed">Netlify meluncurkan commit Git Anda secara instan ke server global.</p>
+                                                    <div className="bg-slate-900 rounded-xl p-4 font-mono text-[10px] text-slate-350 text-slate-300 leading-relaxed space-y-1">
+                                                        <p className="text-slate-500"># 1. Hubungkan GitHub & set Build Commands:</p>
+                                                        <p className="text-white">Build Command: <strong className="text-amber-300">npm run build</strong></p>
+                                                        <p className="text-white">Publish Directory: <strong className="text-amber-300">dist/</strong></p>
+                                                        <p className="text-white">Create file <strong className="text-amber-300">_redirects</strong> containing: <strong className="text-amber-300">/* /index.html 200</strong></p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {deployPlatform === 'vps' && (
+                                                <div className="space-y-4 text-xs sm:text-sm text-left">
+                                                    <h4 className="font-extrabold text-slate-900">Virtual Private Server (Ubuntu 22.04 LTS + PM2 + Nginx Reverse Proxy)</h4>
+                                                    <p className="text-slate-600 leading-relaxed">Cocok untuk hosting full-stack (Express + Node / PHP Laravel) berorientasi rilis terkontrol penuh.</p>
+                                                    <div className="bg-slate-900 rounded-xl p-4 font-mono text-[10px] text-slate-350 text-slate-300 leading-relaxed space-y-1 max-h-56 overflow-y-auto">
+                                                        <p className="text-slate-500"># 1. Update OS & Amankan Port</p>
+                                                        <p className="text-white">sudo apt update && sudo apt upgrade -y</p>
+                                                        <p className="text-white">sudo apt install nginx nodejs npm mariadb-server -y</p>
+                                                        <p className="text-slate-500"># 2. Deploy source via cluster PM2</p>
+                                                        <p className="text-white">npm install -g pm2</p>
+                                                        <p className="text-white">pm2 start server.ts --name "unmerch-backend"</p>
+                                                        <p className="text-white">pm2 save && pm2 startup</p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {deployPlatform === 'shared' && (
+                                                <div className="space-y-4 text-xs sm:text-sm text-left">
+                                                    <h4 className="font-extrabold text-slate-900">Shared hosting Tradisional (cPanel FTP & PHP/Laravel Stack)</h4>
+                                                    <p className="text-slate-600 leading-relaxed">Ekonomis, ramah mahasiswa, dijalankan langsung dari control panel control database terarah.</p>
+                                                    <div className="bg-slate-50 border p-4 rounded-xl text-xs leading-relaxed space-y-2 text-slate-700">
+                                                        <p>1. Ekspor Database ke format SQL dari Console Local ini.</p>
+                                                        <p>2. Akses <strong className="text-slate-950">cPanel</strong> &gt; <strong className="text-slate-950">MySQL Database Wizard</strong>, buat database baru dan masukan user.</p>
+                                                        <p>3. Upload isi folder <strong className="text-slate-950">dist/</strong> hasil bundle Anda langsung ke folder <strong className="text-slate-950">public_html</strong> hosting via File Manager.</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                </div>
+                            </div>
+                        )}
+
                         {/* PAGE 9: STAFF WORKSPACE (Admin Panel) */}
                         {tab === 'staff' && (
                             <div className="bg-slate-100 min-h-screen grid grid-cols-1 md:grid-cols-12 text-left" id="staff-dashboard">
@@ -1750,15 +2248,15 @@
                     {/* Developer profile simulation bar hovering shortcut */}
                     <div className="fixed bottom-4 left-4 z-50 bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-slate-700/60 flex items-center space-x-3.5 shadow-2xl text-left select-none text-white whitespace-nowrap">
                         <div className="leading-none">
-                            <span className="text-[9px] text-amber-400 font-mono block tracking-wider font-bold">MYSQL HUB & TOOL</span>
+                            <span className="text-[9px] text-emerald-400 font-mono block tracking-wider font-bold">DATABASE HUB (GITHUB SPA)</span>
                             <span className="text-[10px] font-medium block mt-1">Ganti Akun & DB:</span>
                         </div>
-                        <div className="flex space-x-1.5">
+                        <div className="flex space-x-1.5 flex-wrap gap-y-1">
                             <button onClick={() => { const cust = users.find(u => u.role === 'customer'); if (cust) { setCurrentUser(cust); triggerToast("Role disimulasikan sebagai CUSTOMER"); navigateTo('home'); } }} className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg border uppercase ${currentUser?.role === 'customer' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Customer</button>
                             <button onClick={() => { const stf = users.find(u => u.role === 'staff'); if (stf) { setCurrentUser(stf); triggerToast("Role disimulasikan sebagai STAFF ADMIN"); navigateTo('staff'); } }} className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg border uppercase ${currentUser?.role === 'staff' ? 'bg-indigo-500 text-white border-indigo-400' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Staff</button>
-                            <button onClick={() => setShowMysqlModal(true)} className="text-[10px] bg-slate-800 border border-blue-500/40 text-blue-400 hover:bg-slate-700 hover:text-white px-2 py-1 rounded-lg flex items-center gap-1 font-bold font-mono cursor-pointer transition">
-                                <Icon name="Database" size={11} className="text-blue-400" />
-                                <span>MySQL Hub</span>
+                            <button onClick={() => setShowMysqlModal(true)} className="text-[10px] bg-slate-800 border border-emerald-500/40 text-emerald-400 hover:bg-slate-750 hover:text-white px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold font-mono cursor-pointer transition">
+                                <Icon name="Database" size={11} className="text-emerald-400" />
+                                <span>DB Console</span>
                             </button>
                         </div>
                     </div>
@@ -1780,15 +2278,15 @@
                             </div>
                             <div className="space-y-2">
                                 <h4 className="font-bold text-white font-mono text-[10px] tracking-wider uppercase">INFORMASI LAIN</h4>
-                                <p>Sistem ini beroperasi 100% menggunakan durabilitas persistence offline `localStorage` browser Anda untuk kelancaran presentasi, pengujian praktis dan pementasan cepat.</p>
+                                <p>Sistem ini beroperasi 100% menggunakan durabilitas persistence offline `localStorage` secara mandiri. Sangat cocok dan aman dijalankan langsung di GitHub Pages tanpa tambahan server apa pun.</p>
                             </div>
                         </div>
-                        <div className="max-w-7xl mx-auto mt-8 pt-4 border-t border-slate-805 border-slate-800 text-[10px] text-slate-500 text-center font-mono select-none">
-                            &copy; 2426 - 2026 UNPAD MERCH HUB PORTAL &middot; ESTABLISHED SECURE FRONT END FLAT FILE FORMAT.
+                        <div className="max-w-7xl mx-auto mt-8 pt-4 border-t border-slate-800 text-[10px] text-slate-500 text-center font-mono select-none">
+                            &copy; 2026 UNPAD MERCH HUB PORTAL &middot; ESTABLISHED SECURE SERVERLESS FRONT END STORAGE.
                         </div>
                     </footer>
 
-                    {/* CUSTOM MYSQL INTEGRATION MODAL CONSOLE */}
+                    {/* CUSTOM BROWSER DATABASE CONSOLE MODAL */}
                     {showMysqlModal && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 text-left font-sans">
                             <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in flex flex-col max-h-[85vh] text-slate-800">
@@ -1796,12 +2294,12 @@
                                 {/* Header */}
                                 <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
                                     <div className="flex items-center space-x-3">
-                                        <div className="bg-blue-600/25 text-blue-400 p-2 rounded-xl">
+                                        <div className="bg-emerald-600/25 text-emerald-400 p-2 rounded-xl">
                                             <Icon name="Database" size={18} />
                                         </div>
                                         <div>
-                                            <h3 className="font-extrabold text-sm sm:text-base font-display">MySQL Integration Console</h3>
-                                            <p className="text-[10px] text-slate-400 font-mono tracking-wide">PENGHUBUNG & SEEDER DATABASE RELASIONAL</p>
+                                            <h3 className="font-extrabold text-sm sm:text-base font-display">Local Browser Database Console</h3>
+                                            <p className="text-[10px] text-slate-400 font-mono tracking-wide">PENGELOLA TABEL MEDIASI LOCALSTORAGE</p>
                                         </div>
                                     </div>
                                     <button onClick={() => setShowMysqlModal(false)} className="bg-slate-850 hover:bg-slate-750 text-slate-400 hover:text-white p-1.5 rounded-xl cursor-pointer transition">
@@ -1813,209 +2311,166 @@
                                 <div className="flex-1 overflow-y-auto p-6 space-y-5 text-left text-xs">
                                     
                                     {/* Sub-menu tabs with stateful visual representation */}
-                                    <div className="flex space-x-1.5 bg-slate-100 p-1 rounded-2xl">
+                                    <div className="flex space-x-1 flex-wrap gap-y-1 bg-slate-100 p-1 rounded-2xl">
                                         <button 
                                             type="button"
+                                            id="btn-tab-setting"
                                             onClick={() => {
                                                 document.getElementById('tab-setting').style.display = 'block';
                                                 document.getElementById('tab-schema').style.display = 'none';
                                                 document.getElementById('tab-seeder').style.display = 'none';
+                                                document.getElementById('tab-blueprints').style.display = 'none';
+                                                
+                                                document.getElementById('btn-tab-setting').className = "flex-1 py-1.5 px-2 bg-white text-slate-900 rounded-xl font-bold shadow-xs transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-schema').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-seeder').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-blueprints').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
                                             }} 
-                                            className="flex-1 py-1.5 px-3 bg-white text-slate-900 rounded-xl font-bold shadow-xs hover:bg-slate-50 transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                            className="flex-1 py-1.5 px-2 bg-white text-slate-900 rounded-xl font-bold shadow-xs transition text-center cursor-pointer font-mono text-[9px] uppercase"
                                         >
-                                            1. API & Koneksi
+                                            1. Status & Reset
                                         </button>
                                         <button 
                                             type="button"
+                                            id="btn-tab-schema"
                                             onClick={() => {
                                                 document.getElementById('tab-setting').style.display = 'none';
                                                 document.getElementById('tab-schema').style.display = 'block';
                                                 document.getElementById('tab-seeder').style.display = 'none';
+                                                document.getElementById('tab-blueprints').style.display = 'none';
+
+                                                document.getElementById('btn-tab-setting').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-schema').className = "flex-1 py-1.5 px-2 bg-white text-slate-900 rounded-xl font-bold shadow-xs transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-seeder').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-blueprints').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
                                             }} 
-                                            className="flex-1 py-1.5 px-3 hover:bg-white text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                            className="flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase"
                                         >
-                                            2. Struktur DDL SQL
+                                            2. Akun Terdaftar
                                         </button>
                                         <button 
                                             type="button"
+                                            id="btn-tab-seeder"
                                             onClick={() => {
                                                 document.getElementById('tab-setting').style.display = 'none';
                                                 document.getElementById('tab-schema').style.display = 'none';
                                                 document.getElementById('tab-seeder').style.display = 'block';
+                                                document.getElementById('tab-blueprints').style.display = 'none';
+
+                                                document.getElementById('btn-tab-setting').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-schema').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-seeder').className = "flex-1 py-1.5 px-2 bg-white text-slate-900 rounded-xl font-bold shadow-xs transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-blueprints').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
                                             }} 
-                                            className="flex-1 py-1.5 px-3 hover:bg-white text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                            className="flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase"
                                         >
-                                            3. Live Seed Data
+                                            3. Dataset JSON Raw
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            id="btn-tab-blueprints"
+                                            onClick={() => {
+                                                document.getElementById('tab-setting').style.display = 'none';
+                                                document.getElementById('tab-schema').style.display = 'none';
+                                                document.getElementById('tab-seeder').style.display = 'none';
+                                                document.getElementById('tab-blueprints').style.display = 'block';
+
+                                                document.getElementById('btn-tab-setting').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-schema').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-seeder').className = "flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                                document.getElementById('btn-tab-blueprints').className = "flex-1 py-1.5 px-2 bg-white text-slate-900 rounded-xl font-bold shadow-xs transition text-center cursor-pointer font-mono text-[9px] uppercase";
+                                            }} 
+                                            className="flex-1 py-1.5 px-2 text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[9px] uppercase"
+                                        >
+                                            4. Multi-Stack Blueprint
                                         </button>
                                     </div>
 
-                                    {/* Tab 1: Settings */}
+                                    {/* Tab 1: Settings / Status */}
                                     <div id="tab-setting" className="space-y-4">
-                                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex items-start space-x-3">
-                                            <Icon name="Info" size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                                        <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-start space-x-3">
+                                            <Icon name="CheckCircle" size={16} className="text-emerald-500 shrink-0 mt-0.5" />
                                             <div>
-                                                <h4 className="font-bold text-blue-800">Bagaimana Cara Kerja MySQL pada Deploy GitHub?</h4>
-                                                <p className="text-blue-700 text-[11px] leading-relaxed mt-1">
-                                                    GitHub Pages hanya menampung berkas statis (HTML/JS/CSS). Karena browser tidak terhubung langsung ke port TCP MySQL Anda, Anda membutuhkan layanan intermediari **REST API**. Kami telah menyiapkan repositori server node lengkap di file `server-mysql.js`!
+                                                <h4 className="font-bold text-emerald-800">Database Berjalan 100% Mandiri di GitHub Pages</h4>
+                                                <p className="text-emerald-700 text-[11px] leading-relaxed mt-1">
+                                                    Selamat! Database aplikasi ini menggunakan **Web Storage (LocalStorage)** terenkripsi datar di sisi peramban. Sistem ini bekerja secara real-time, menyimpan setiap registrasi akun baru, riwayat pesanan (Orders), dan kategori barang tanpa membutuhkan server luar atau API eksternal yang lambat.
                                                 </p>
                                             </div>
                                         </div>
 
-                                        <div className="space-y-3.5">
-                                            <div className="space-y-1.5">
-                                                <label className="text-[10px] text-slate-400 font-mono font-bold block uppercase tracking-wide">MySQL REST API URL Endpoint</label>
-                                                <div className="flex gap-2">
-                                                    <input 
-                                                        type="text" 
-                                                        id="mysql-api-url-input"
-                                                        defaultValue={mysqlApiUrl}
-                                                        placeholder="Contoh: http://localhost:3000" 
-                                                        className="flex-1 bg-slate-50 border rounded-xl px-3 py-2.5 text-slate-850 font-mono focus:outline-hidden" 
-                                                    />
-                                                    <button 
-                                                        type="button"
-                                                        onClick={async () => {
-                                                            const inp = document.getElementById('mysql-api-url-input').value;
-                                                            if (!inp) { triggerToast("Masukkan URL terlebih dahulu!"); return; }
-                                                            triggerToast("Mengecek status API...");
-                                                            const testUrl = inp.replace(/\/$/, '') + '/status';
-                                                            try {
-                                                                const res = await fetch(testUrl).catch(() => null);
-                                                                if (res && res.ok) {
-                                                                    triggerToast("Koneksi Sukses! REST API terdeteksi terhubung ke server.");
-                                                                } else {
-                                                                    triggerToast("Gagal: Respon tidak valid dari " + testUrl);
-                                                                }
-                                                            } catch (err) {
-                                                                triggerToast("Gagal terhubung, pastikan server Node Anda berjalan!");
-                                                            }
-                                                        }}
-                                                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl font-bold transition font-mono whitespace-nowrap cursor-pointer"
-                                                    >
-                                                        Uji Endpoint
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                        <div className="bg-slate-50 border p-4 rounded-2xl space-y-3">
+                                            <h4 className="font-bold text-slate-800 text-xs">Informasi Sesi Serverless</h4>
+                                            <div className="grid grid-cols-2 gap-4 text-[11px]">
                                                 <div>
-                                                    <h5 className="font-bold text-slate-900 text-xs">Aktifkan Hubungan Live REST API</h5>
-                                                    <p className="text-[10px] text-slate-500 mt-0.5 leading-normal">Bila diaktifkan, aplikasi akan mengarahkan semua data auth login, registrasi, dan sinkronisasi produk ke server MySQL.</p>
+                                                    <span className="text-slate-400 font-mono block">METRIK AKTIF</span>
+                                                    <span className="font-bold text-slate-800 font-mono">{users.length} Akun, {products.length} Barang</span>
                                                 </div>
-                                                <div className="relative inline-flex items-center cursor-pointer">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        id="mysql-toggle"
-                                                        defaultChecked={mysqlApiEnabled}
-                                                        className="sr-only peer"
-                                                        onChange={(e) => {
-                                                            const enabled = e.target.checked;
-                                                            const url = document.getElementById('mysql-api-url-input').value;
-                                                            updateMysqlSettings(url, enabled);
-                                                        }}
-                                                    />
-                                                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                                <div>
+                                                    <span className="text-slate-400 font-mono block">PERSISTENSI</span>
+                                                    <span className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[9px] font-bold">LOKAL AMAN (HTML5)</span>
                                                 </div>
-                                            </div>
-
-                                            {/* Status Badge */}
-                                            <div className="flex items-center space-x-2">
-                                                <span className="text-[11px] font-semibold text-slate-500">Status Database Server:</span>
-                                                {dbStatus === 'connected' ? (
-                                                    <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● TERHUBUNG LIVE DB</span>
-                                                ) : dbStatus === 'error' ? (
-                                                    <span className="bg-rose-100 text-rose-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● OFFLINE / TIMEOUT</span>
-                                                ) : (
-                                                    <span className="bg-amber-100 text-amber-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● SIMULASI INTEGRASI RELASIONAL</span>
-                                                )}
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Tab 2: SQL DDL Schema */}
-                                    <div id="tab-schema" className="space-y-4" style={{ display: 'none' }}>
-                                        <div className="flex justify-between items-center text-slate-400">
-                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">MySQL Table DDL Script (`schema.sql`)</span>
+                                        <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center justify-between">
+                                            <div>
+                                                <h5 className="font-bold text-orange-900 text-xs">Pembersihan & Reset Pabrik</h5>
+                                                <p className="text-[10px] text-orange-700 mt-0.5 max-w-[400px]">Hapus seluruh memori perubahan, kembalikan data barang, akun demo utama, serta transaksi ke sedia kala.</p>
+                                            </div>
                                             <button 
-                                                type="button"
-                                                onClick={() => {
-                                                    const scriptText = document.getElementById('ddl-code-block').innerText;
-                                                    navigator.clipboard.writeText(scriptText);
-                                                    triggerToast("Skema SQL tersalin ke Clipboard!");
-                                                }}
-                                                className="text-blue-500 hover:text-blue-650 font-bold flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg cursor-pointer transition text-[10px] font-mono"
+                                                type="button" 
+                                                onClick={handleResetDatabase}
+                                                className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-xl text-[10px] font-mono cursor-pointer transition"
                                             >
-                                                <Icon name="Copy" size={12} />
-                                                <span>SALIN DDL</span>
+                                                RESET DATA
                                             </button>
                                         </div>
-                                        
-                                        <pre 
-                                            id="ddl-code-block" 
-                                            className="bg-slate-900 border text-slate-300 p-4 rounded-2xl h-64 overflow-y-auto font-mono text-[10px] leading-relaxed text-left opacity-90"
-                                        >
-{`CREATE TABLE users (
-    id VARCHAR(50) PRIMARY KEY,
-    fullName VARCHAR(150) NOT NULL,
-    email VARCHAR(150) NOT NULL UNIQUE,
-    role ENUM('customer', 'staff') NOT NULL DEFAULT 'customer',
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE categories (
-    id VARCHAR(50) PRIMARY KEY,
-    categoryName VARCHAR(100) NOT NULL,
-    description TEXT
-);
-
-CREATE TABLE products (
-    id VARCHAR(50) PRIMARY KEY,
-    categoryId VARCHAR(50),
-    productName VARCHAR(255) NOT NULL,
-    description TEXT,
-    price INT NOT NULL,
-    stock INT NOT NULL DEFAULT 0,
-    image TEXT,
-    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE SET NULL
-);
-
-CREATE TABLE orders (
-    id VARCHAR(50) PRIMARY KEY,
-    userId VARCHAR(50),
-    totalAmount INT NOT NULL,
-    paymentStatus ENUM('Pending', 'Paid', 'Failed') NOT NULL DEFAULT 'Pending',
-    orderStatus ENUM('Pending Payment', 'Processing', 'Ready for Pickup', 'Completed', 'Cancelled') NOT NULL DEFAULT 'Pending Payment',
-    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-);`}
-                                        </pre>
                                     </div>
 
-                                    {/* Tab 3: Generated Seeder SQL */}
-                                    <div id="tab-seeder" className="space-y-4" style={{ display: 'none' }}>
-                                        <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-start space-x-3 text-emerald-850">
-                                            <Icon name="Sparkles" size={16} className="text-emerald-500 shrink-0 mt-0.5" />
-                                            <div>
-                                                <h4 className="font-bold text-emerald-800">Dynamic Live SQL Data Exporter</h4>
-                                                <p className="text-emerald-700 text-[11px] leading-relaxed mt-1">
-                                                    Lacak manipulasi data instan Anda! Cuplikan di bawah merupakan kueri SQL `INSERT` otomatis yang dihasilkan langsung berdasarkan keadaan memori terbaru Anda. Eksekusilah di PHPMyAdmin untuk melakukan sinkronisasi instan.
-                                                </p>
-                                            </div>
-                                        </div>
-
+                                    {/* Tab 2: Registered Accounts */}
+                                    <div id="tab-schema" className="space-y-4" style={{ display: 'none' }}>
                                         <div className="flex justify-between items-center text-slate-400">
-                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">Live Dynamic MySQL Seed Data</span>
+                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">Tabel Akun Pengguna Terdaftar (`users`)</span>
+                                        </div>
+                                        
+                                        <div className="bg-slate-950 text-slate-300 font-mono text-[10px] rounded-2xl border p-4 max-h-64 overflow-y-auto space-y-2">
+                                            <div className="grid grid-cols-3 border-b border-slate-800 pb-1.5 font-bold text-slate-400">
+                                                <span>NAMA</span>
+                                                <span>EMAIL</span>
+                                                <span className="text-right">HAK AKSES</span>
+                                            </div>
+                                            {users.map(u => (
+                                                <div key={u.id} className="grid grid-cols-3 border-b border-slate-900 pb-1 hover:text-white transition">
+                                                    <span className="truncate">{u.fullName}</span>
+                                                    <span className="truncate text-blue-400">{u.email}</span>
+                                                    <span className="text-right text-purple-400 font-bold uppercase text-[9px]">{u.role}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 italic">Anda dapat mendaftarkan akun baru melalui tombol 'Daftar' di menu masuk, akun baru akan secara otomatis ditambahkan ke tabel database lokal di atas.</p>
+                                    </div>
+
+                                    {/* Tab 3: Dataset JSON */}
+                                    <div id="tab-seeder" className="space-y-4" style={{ display: 'none' }}>
+                                        <div className="flex justify-between items-center text-slate-400">
+                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">Raw JSON Database Memory Backup</span>
                                             <button 
                                                 type="button"
                                                 onClick={() => {
-                                                    const seedText = document.getElementById('seeder-code-block').innerText;
-                                                    navigator.clipboard.writeText(seedText);
-                                                    triggerToast("Kueri Seeder tersalin!");
+                                                    const rawMemory = {
+                                                        users,
+                                                        products,
+                                                        categories,
+                                                        orders,
+                                                        notifications
+                                                    };
+                                                    navigator.clipboard.writeText(JSON.stringify(rawMemory, null, 2));
+                                                    triggerToast("Raw JSON tersalin!");
                                                 }}
                                                 className="text-emerald-600 hover:text-emerald-750 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg cursor-pointer transition text-[10px] font-mono"
                                             >
                                                 <Icon name="Copy" size={12} />
-                                                <span>SALIN SEED</span>
+                                                <span>SALIN DATABASE RAW</span>
                                             </button>
                                         </div>
 
@@ -2023,15 +2478,84 @@ CREATE TABLE orders (
                                             id="seeder-code-block" 
                                             className="bg-slate-900 border text-slate-300 p-4 rounded-2xl h-56 overflow-y-auto font-mono text-[10px] leading-relaxed text-left opacity-90"
                                         >
-                                            {generatedSqlSeed}
+                                            {JSON.stringify({ users, products, categories, orders }, null, 2)}
                                         </pre>
+                                    </div>
+
+                                    {/* Tab 4: Multi-Stack and Deployment Blueprints */}
+                                    <div id="tab-blueprints" className="space-y-4 font-sans" style={{ display: 'none' }}>
+                                        <div className="bg-sky-50 border border-sky-100 p-4 rounded-2xl flex items-start space-x-3 text-sky-850">
+                                            <Icon name="Layers" size={16} className="text-sky-500 shrink-0 mt-0.5" />
+                                            <div>
+                                                <h4 className="font-bold text-sky-800 text-xs">Cetak Biru (Blueprint) Multi-Stack & Hosting</h4>
+                                                <p className="text-sky-700 text-[10px] leading-relaxed mt-1">
+                                                    Sesuai kebutuhan deployment mandiri dari awal, kami telah menyusun berkas-berkas skema database relasional dan contoh controller backend siap saji langsung di struktur folder GitHub repositori Anda (`/src/blueprints/`).
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                                            {/* Front-End Blueprint Card */}
+                                            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5">
+                                                <span className="text-[9px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full font-bold font-mono tracking-wider">🌐 FRONT-END</span>
+                                                <h5 className="font-bold text-slate-800 text-[11px]">HTML, CSS, Tailwind & Vanillajs SPA</h5>
+                                                <p className="text-slate-500 text-[10px] leading-normal font-sans">Aplikasi saat ini telah siap 100% dideploy tanpa server backend. Sangat ringan untuk presentasi di GitHub Pages.</p>
+                                                <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-[10px] font-mono leading-tight text-slate-600 space-y-1 block">
+                                                    <div><strong>Host Mandiri</strong>: GitHub Pages / Vercel</div>
+                                                    <div><strong>Frameworks</strong>: React, Tailwind, Lucide</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Back-End Blueprint Card */}
+                                            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5">
+                                                <span className="text-[9px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold font-mono tracking-wider">⚙️ BACK-END API</span>
+                                                <h5 className="font-bold text-slate-800 text-[11px]">PHP (Laravel), Node.js (Express), & Django</h5>
+                                                <p className="text-slate-500 text-[10px] leading-normal font-sans">Kami telah menaruh berkas-berkas pengontrol logic API untuk Anda salin ke server VPS:</p>
+                                                <div className="bg-slate-900 text-slate-200 p-2.5 rounded-xl text-[10px] font-mono space-y-1 block">
+                                                    <div className="flex justify-between"><span>Laravel:</span> <span className="text-amber-300 font-bold">laravel_controller.php</span></div>
+                                                    <div className="flex justify-between"><span>Node.js:</span> <span className="text-emerald-300 font-bold">nodejs_server.js</span></div>
+                                                    <div className="flex justify-between"><span>Django:</span> <span className="text-sky-300 font-bold">django_views.py</span></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Database Blueprint Card */}
+                                            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5">
+                                                <span className="text-[9px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold font-mono tracking-wider">🗄️ DATABASE SQL</span>
+                                                <h5 className="font-bold text-slate-800 text-[11px]">MySQL & PostgreSQL Skema</h5>
+                                                <p className="text-slate-500 text-[10px] leading-normal font-sans">Telah siap relasi tabel Users, Categories, Products, Orders, dan Order Items yang bersih:</p>
+                                                <div className="bg-slate-950 text-slate-300 p-2.5 rounded-xl text-[10px] font-mono space-y-1 block">
+                                                    <div className="flex justify-between"><span>MySQL:</span> <span className="text-emerald-400 font-bold">schema.sql</span></div>
+                                                    <div className="flex justify-between"><span>Postgres:</span> <span className="text-cyan-400 font-bold">postgresql_schema.sql</span></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Deployment Blueprint Card */}
+                                            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5">
+                                                <span className="text-[9px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold font-mono tracking-wider">🚀 PLAYBOOK HOSTING</span>
+                                                <h5 className="font-bold text-slate-800 text-[11px]">Panduan Vercel, Netlify & cPanel</h5>
+                                                <p className="text-slate-500 text-[10px] leading-normal font-sans">Langkah-demi-langkah setup reverse proxy Nginx, pm2, migrations, dan deploy hosting cPanel:</p>
+                                                <div className="bg-indigo-50 border border-indigo-100 p-2.5 rounded-xl text-[10px] font-mono text-indigo-800 flex items-center justify-between">
+                                                    <span>📂 /src/blueprints/README.md</span>
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText("Buka berkas /src/blueprints/README.md");
+                                                            triggerToast("Lokasi file README tersalin!");
+                                                        }}
+                                                        className="text-indigo-950 font-bold hover:underline cursor-pointer uppercase text-[9px]"
+                                                    >
+                                                        Salin Jalur
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                     
                                 </div>
 
                                 {/* Footer */}
                                 <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
-                                    <span className="text-[10px] text-slate-500 font-medium">Gunakan backend Node Anda pada berkas server-mysql.js untuk sinkronisasi live.</span>
+                                    <span className="text-[10px] text-slate-500 font-medium">Sistem database browser ini aman, responsif, dan siap kirim ke GitHub Pages!</span>
                                     <button 
                                         type="button"
                                         onClick={() => setShowMysqlModal(false)}
