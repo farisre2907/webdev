@@ -48,65 +48,16 @@
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- Firebase Compat SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
+    <!-- MySQL Database & Service Utilities (No Firebase) -->
     <!-- Main App Logic -->
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // Firebase Configuration
-        const firebaseConfig = {
-            projectId: "gen-lang-client-0307239137",
-            appId: "1:308089398540:web:52db0043facaecdeb71529",
-            apiKey: "AIzaSyCS2YAn7icMQwWmhGYeDB2qALYvZQCudMc",
-            authDomain: "gen-lang-client-0307239137.firebaseapp.com",
-            firestoreDatabaseId: "ai-studio-ee7cee26-5951-4a6e-a1e6-43a809e2c613",
-            storageBucket: "gen-lang-client-0307239137.firebasestorage.app",
-            messagingSenderId: "308089398540"
-        };
+        // Configuration variables for live MySQL API integration
+        let initialMysqlApiUrl = localStorage.getItem('cmh_mysql_api_url') || '';
+        let initialMysqlApiEnabled = localStorage.getItem('cmh_mysql_api_enabled') === 'true';
 
-        // Initialize Firebase
-        let db = null;
-        try {
-            if (window.firebase) {
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                }
-                const app = firebase.app();
-                db = app.firestore(firebaseConfig.firestoreDatabaseId);
-            } else {
-                console.warn("Firebase SDK was not loaded yet");
-            }
-        } catch (err) {
-            console.error("Firebase Initialization Error:", err);
-        }
-
-        const OperationType = {
-            CREATE: 'create',
-            UPDATE: 'update',
-            DELETE: 'delete',
-            LIST: 'list',
-            GET: 'get',
-            WRITE: 'write',
-        };
-
-        function handleFirestoreError(error, operationType, path) {
-            const errInfo = {
-                error: error instanceof Error ? error.message : String(error),
-                authInfo: {
-                    userId: null,
-                    email: null,
-                    emailVerified: null,
-                    isAnonymous: null
-                },
-                operationType,
-                path
-            };
-            console.error('Firestore Error: ', JSON.stringify(errInfo));
-            return errInfo.error;
-        }
+        console.log(`[MYSQL CONFIG] Loaded. Live Server Mode: ${initialMysqlApiEnabled ? "ON" : "OFF"}. Endpoint: ${initialMysqlApiUrl || "Simulated Local Storage"}`);
 
         // Custom Icon wrapper to render Lucide CDN icons inside React
         const Icon = ({ name, size = 16, className = "" }) => {
@@ -265,6 +216,51 @@
             const [pImage, setPImage] = useState('');
             const [pDesc, setPDesc] = useState('');
 
+            const [showMysqlModal, setShowMysqlModal] = useState(false);
+
+            // Dynamically generate SQL Seed statements based on current state
+            const generatedSqlSeed = useMemo(() => {
+                let sql = `-- ==================================================\n`;
+                sql += `-- SQL INSERT SEED DATA GENERATED FROM BROWSER SESSION\n`;
+                sql += `-- ==================================================\n\n`;
+                sql += `USE unpad_merch_hub;\n\n`;
+                
+                // Users
+                sql += `-- 1. Seeding Users table\n`;
+                users.forEach(u => {
+                    const cleanName = u.fullName ? u.fullName.replace(/'/g, "''") : "Faris Rifqy";
+                    sql += `INSERT INTO users (id, fullName, email, role) VALUES ('${u.id}', '${cleanName}', '${u.email}', '${u.role}') ON DUPLICATE KEY UPDATE fullName=VALUES(fullName);\n`;
+                });
+                
+                // Categories
+                sql += `\n-- 2. Seeding Categories table\n`;
+                categories.forEach(c => {
+                    sql += `INSERT INTO categories (id, categoryName, description) VALUES ('${c.id}', '${c.categoryName.replace(/'/g, "''")}', '${c.description ? c.description.replace(/'/g, "''") : "NULL"}') ON DUPLICATE KEY UPDATE categoryName=VALUES(categoryName);\n`;
+                });
+
+                // Products
+                sql += `\n-- 3. Seeding Products table\n`;
+                products.forEach(p => {
+                    const cleanDesc = p.description ? p.description.replace(/'/g, "''") : "";
+                    sql += `INSERT INTO products (id, categoryId, productName, description, price, stock, image) VALUES ('${p.id}', '${p.categoryId}', '${p.productName.replace(/'/g, "''")}', '${cleanDesc}', ${p.price}, ${p.stock}, '${p.image}') ON DUPLICATE KEY UPDATE price=VALUES(price), stock=VALUES(stock);\n`;
+                });
+                
+                // Orders
+                if (orders && orders.length > 0) {
+                    sql += `\n-- 4. Seeding Orders & Order Items table\n`;
+                    orders.forEach(o => {
+                        sql += `INSERT INTO orders (id, userId, totalAmount, paymentStatus, orderStatus) VALUES ('${o.id}', '${o.userId}', ${o.totalAmount}, '${o.paymentStatus}', '${o.orderStatus}') ON DUPLICATE KEY UPDATE orderStatus=VALUES(orderStatus);\n`;
+                        if (o.items && o.items.length > 0) {
+                            o.items.forEach(item => {
+                                sql += `INSERT INTO order_items (id, orderId, productId, quantity, price) VALUES ('${item.id}', '${o.id}', '${item.productId}', ${item.quantity}, ${item.price}) ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);\n`;
+                            });
+                        }
+                    });
+                }
+                
+                return sql;
+            }, [users, categories, products, orders]);
+
             const [showCatModal, setShowCatModal] = useState(false);
             const [editingCat, setEditingCat] = useState(null);
             const [cName, setCName] = useState('');
@@ -284,44 +280,60 @@
             useEffect(() => { localStorage.setItem('cmh_orders', JSON.stringify(orders)); }, [orders]);
             useEffect(() => { localStorage.setItem('cmh_notifications', JSON.stringify(notifications)); }, [notifications]);
 
-            // Sync/seed users from Firestore on mount
+            // MySQL Database API Config States & Controls
+            const [mysqlApiUrl, setMysqlApiUrlState] = useState(initialMysqlApiUrl);
+            const [mysqlApiEnabled, setMysqlApiEnabledState] = useState(initialMysqlApiEnabled);
+            const [isCheckingDb, setIsCheckingDb] = useState(false);
+            const [dbStatus, setDbStatus] = useState('unknown'); // 'unknown', 'connected', 'error'
+
+            const updateMysqlSettings = (url, enabled) => {
+                const checkedUrl = url.trim();
+                localStorage.setItem('cmh_mysql_api_url', checkedUrl);
+                localStorage.setItem('cmh_mysql_api_enabled', enabled ? 'true' : 'false');
+                setMysqlApiUrlState(checkedUrl);
+                setMysqlApiEnabledState(enabled);
+                
+                // Clear state cache to trigger updates
+                if (enabled) {
+                    triggerToast("MySQL Live REST API diaktifkan!");
+                } else {
+                    triggerToast("Beralih ke Mode Simulasi Relasional.");
+                }
+            };
+
+            // Sync with MySQL on mount or context change
             useEffect(() => {
-                const loadUsersFromFirestore = async () => {
-                    if (!db) {
-                        console.warn("Firestore database container is null");
+                const syncFromMysql = async () => {
+                    if (!mysqlApiEnabled || !mysqlApiUrl) {
+                        console.log("[MYSQL LOG] Menjalankan Simulasi Relasional MySQL.");
+                        setDbStatus('unknown');
                         return;
                     }
                     try {
-                        const snapshot = await db.collection('users').get().catch(err => {
-                            handleFirestoreError(err, OperationType.LIST, 'users');
-                            throw err;
-                        });
-                        if (snapshot.empty) {
-                            console.log("Database contains no users. Seeding default accounts...");
-                            const defaults = [
-                                { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
-                                { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
-                            ];
-                            for (const defaultUser of defaults) {
-                                await db.collection('users').doc(defaultUser.id).set(defaultUser).catch(err => {
-                                    handleFirestoreError(err, OperationType.CREATE, `users/${defaultUser.id}`);
-                                });
+                        setIsCheckingDb(true);
+                        const cleanUrl = mysqlApiUrl.replace(/\/$/, '');
+                        const res = await fetch(`${cleanUrl}/status`).catch(() => null);
+                        if (res && res.ok) {
+                            setDbStatus('connected');
+                            // Pull products
+                            const pRes = await fetch(`${cleanUrl}/api/products`).catch(() => null);
+                            if (pRes && pRes.ok) {
+                                const pData = await pRes.json();
+                                if (pData && pData.length > 0) setProducts(pData);
                             }
-                            setUsers(defaults);
                         } else {
-                            const loaded = [];
-                            snapshot.forEach(doc => {
-                                loaded.push(doc.data());
-                            });
-                            setUsers(loaded);
+                            setDbStatus('error');
+                            triggerToast("Gagal terhubung ke REST API MySQL di " + mysqlApiUrl);
                         }
                     } catch (err) {
-                        console.error("Error synchronizing users with Firebase:", err);
+                        setDbStatus('error');
+                        console.error("MySQL Sync Error:", err);
+                    } finally {
+                        setIsCheckingDb(false);
                     }
                 };
-                
-                loadUsersFromFirestore();
-            }, []);
+                syncFromMysql();
+            }, [mysqlApiEnabled, mysqlApiUrl]);
 
             // Toast helper
             const triggerToast = (msg) => {
@@ -358,54 +370,65 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
-            // Actions: User Management
+            // Actions: User Management (MySQL Integration & Local Storage Simulation)
             const handleLogin = async (e) => {
                 e.preventDefault();
                 const cleanEmail = loginEmail.trim().toLowerCase();
                 
-                if (!db) {
-                    // Fallback to local memory if database has initialization issues
+                if (mysqlApiEnabled && mysqlApiUrl) {
+                    try {
+                        triggerToast("Menghubungi server MySQL API...");
+                        const serverUrl = mysqlApiUrl.replace(/\/$/, '');
+                        const response = await fetch(`${serverUrl}/api/auth/login`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: cleanEmail, role: loginRole })
+                        }).catch(err => {
+                            throw new Error("Gagal menghubungi server API local: " + err.message);
+                        });
+
+                        const result = await response.json();
+                        if (response.ok && result.status === 'success') {
+                            const matched = result.user;
+                            
+                            // Keep in sync locally
+                            setUsers(prev => {
+                                if (prev.some(u => u.id === matched.id)) return prev;
+                                return [...prev, matched];
+                            });
+
+                            setCurrentUser(matched);
+                            triggerToast("Selamat datang kembali, " + matched.fullName + " (Login MySQL Server)!");
+                            addNotificationLocal(matched.id, "Login Berhasil (MySQL)", "Anda berhasil masuk menggunakan akun terverifikasi di MySQL.");
+                            navigateTo('home');
+                        } else {
+                            triggerToast(result.message || "Email salah atau peran tidak sesuai!");
+                        }
+                    } catch (err) {
+                        console.error("MySQL Live Login failed:", err);
+                        triggerToast("Gagal terhubung server, beralih ke Mode Simulasi...");
+                        
+                        // Local fallback
+                        const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
+                        if (matched) {
+                            setCurrentUser(matched);
+                            triggerToast("Login Berhasil (Sesi Lokal): " + matched.fullName);
+                            navigateTo('home');
+                        } else {
+                            triggerToast("Error: " + err.message);
+                        }
+                    }
+                } else {
+                    // Simulated Local MySQL Engine
+                    console.log(`[SQL ENGINE] EXECUTING QUERY: SELECT * FROM users WHERE LOWER(email) = '${cleanEmail}' AND role = '${loginRole}' LIMIT 1;`);
                     const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
                     if (matched) {
                         setCurrentUser(matched);
-                        triggerToast("Selamat datang kembali, " + matched.fullName + " (Offline Mode)!");
-                        navigateTo('home');
-                    } else {
-                        triggerToast("Database tidak terhubung & email salah!");
-                    }
-                    return;
-                }
-
-                try {
-                    triggerToast("Memverifikasi kredensial...");
-                    const snapshot = await db.collection('users')
-                        .where('email', '==', cleanEmail)
-                        .where('role', '==', loginRole)
-                        .get()
-                        .catch(err => {
-                            handleFirestoreError(err, OperationType.LIST, 'users');
-                            throw err;
-                        });
-
-                    if (!snapshot.empty) {
-                        const matched = snapshot.docs[0].data();
-                        setCurrentUser(matched);
                         triggerToast("Selamat datang kembali, " + matched.fullName + "!");
-                        addNotificationLocal(matched.id, "Login Berhasil (Firebase)", "Anda berhasil login kembali ke Unpad Merch Hub via Cloud Firestore.");
+                        addNotificationLocal(matched.id, "Login Berhasil", "Masuk berhasil (Simulasi Tabel Relasional MySQL).");
                         navigateTo('home');
                     } else {
                         triggerToast("Email salah atau peran tidak sesuai!");
-                    }
-                } catch (err) {
-                    console.error("Firebase Login failed:", err);
-                    // Fallback to local memory
-                    const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
-                    if (matched) {
-                        setCurrentUser(matched);
-                        triggerToast("Login Berhasil (Sesi Lokal): " + matched.fullName);
-                        navigateTo('home');
-                    } else {
-                        triggerToast("Koneksi gagal & email salah: " + err.message);
                     }
                 }
             };
@@ -420,28 +443,45 @@
                     return;
                 }
 
-                if (!db) {
-                    triggerToast("Firebase Firestore tidak terintegrasi dengan benar.");
-                    return;
-                }
-
-                try {
-                    triggerToast("Membuat akun baru di cloud...");
-                    // 1. Check if email already registered in firestore
-                    const snapshot = await db.collection('users')
-                        .where('email', '==', cleanEmail)
-                        .get()
-                        .catch(err => {
-                            handleFirestoreError(err, OperationType.LIST, 'users');
-                            throw err;
+                if (mysqlApiEnabled && mysqlApiUrl) {
+                    try {
+                        triggerToast("Mendaftarkan akun ke server MySQL...");
+                        const serverUrl = mysqlApiUrl.replace(/\/$/, '');
+                        const response = await fetch(`${serverUrl}/api/auth/register`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ fullName: cleanName, email: cleanEmail, role: regRole })
+                        }).catch(err => {
+                            throw new Error("Gagal mendaftar ke server API: " + err.message);
                         });
 
-                    if (!snapshot.empty) {
-                        triggerToast("E-mail sudah terdaftar di database cloud!");
+                        const result = await response.json();
+                        if (response.ok && result.status === 'success') {
+                            const newU = result.user;
+                            setUsers(prev => {
+                                if (prev.some(u => u.id === newU.id)) return prev;
+                                return [...prev, newU];
+                            });
+                            setCurrentUser(newU);
+                            triggerToast("Registrasi Berhasil di Database MySQL!");
+                            addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", akun Anda berhasil disimpan di database MySQL.");
+                            navigateTo('home');
+                        } else {
+                            triggerToast(result.message || "Pendaftaran gagal!");
+                        }
+                    } catch (err) {
+                        console.error("MySQL Live Register failed:", err);
+                        triggerToast("Koneksi API Gagal: " + err.message);
+                    }
+                } else {
+                    // Simulated Local MySQL Engine
+                    console.log(`[SQL ENGINE] EXECUTING CHECK: SELECT id FROM users WHERE LOWER(email) = '${cleanEmail}';`);
+                    const exists = users.find(u => u.email.toLowerCase() === cleanEmail);
+                    if (exists) {
+                        triggerToast("E-mail sudah terdaftar di database local!");
                         return;
                     }
 
-                    // 2. Insert document
                     const newUserId = 'USR-' + Date.now();
                     const newU = {
                         id: newUserId,
@@ -450,24 +490,13 @@
                         role: regRole
                     };
 
-                    await db.collection('users').doc(newUserId).set(newU).catch(err => {
-                        handleFirestoreError(err, OperationType.CREATE, `users/${newUserId}`);
-                        throw err;
-                    });
-
-                    // 3. Update local state
-                    setUsers(prev => {
-                        if (prev.some(u => u.id === newUserId)) return prev;
-                        return [...prev, newU];
-                    });
+                    console.log(`[SQL ENGINE] EXECUTING INSERT: INSERT INTO users (id, fullName, email, role) VALUES ('${newUserId}', '${cleanName}', '${cleanEmail}', '${regRole}');`);
+                    
+                    setUsers(prev => [...prev, newU]);
                     setCurrentUser(newU);
-
-                    triggerToast("Pendaftaran Berhasil! Selamat datang.");
-                    addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad via cloud database.");
+                    triggerToast("Pendaftaran Berhasil! Akun disimpan.");
+                    addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
                     navigateTo('home');
-                } catch (err) {
-                    console.error("Firebase registration failed:", err);
-                    triggerToast("Pendaftaran gagal: " + err.message);
                 }
             };
 
@@ -1721,12 +1750,16 @@
                     {/* Developer profile simulation bar hovering shortcut */}
                     <div className="fixed bottom-4 left-4 z-50 bg-slate-900/90 backdrop-blur-md px-3.5 py-2.5 rounded-2xl border border-slate-700/60 flex items-center space-x-3.5 shadow-2xl text-left select-none text-white whitespace-nowrap">
                         <div className="leading-none">
-                            <span className="text-[9px] text-amber-400 font-mono block tracking-wider font-bold">DEVELOPER TOOL</span>
-                            <span className="text-[10px] font-medium block mt-1">Ganti Simulasi Akun:</span>
+                            <span className="text-[9px] text-amber-400 font-mono block tracking-wider font-bold">MYSQL HUB & TOOL</span>
+                            <span className="text-[10px] font-medium block mt-1">Ganti Akun & DB:</span>
                         </div>
                         <div className="flex space-x-1.5">
                             <button onClick={() => { const cust = users.find(u => u.role === 'customer'); if (cust) { setCurrentUser(cust); triggerToast("Role disimulasikan sebagai CUSTOMER"); navigateTo('home'); } }} className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg border uppercase ${currentUser?.role === 'customer' ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Customer</button>
                             <button onClick={() => { const stf = users.find(u => u.role === 'staff'); if (stf) { setCurrentUser(stf); triggerToast("Role disimulasikan sebagai STAFF ADMIN"); navigateTo('staff'); } }} className={`text-[10px] font-bold font-mono px-2 py-1 rounded-lg border uppercase ${currentUser?.role === 'staff' ? 'bg-indigo-500 text-white border-indigo-400' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}>Staff</button>
+                            <button onClick={() => setShowMysqlModal(true)} className="text-[10px] bg-slate-800 border border-blue-500/40 text-blue-400 hover:bg-slate-700 hover:text-white px-2 py-1 rounded-lg flex items-center gap-1 font-bold font-mono cursor-pointer transition">
+                                <Icon name="Database" size={11} className="text-blue-400" />
+                                <span>MySQL Hub</span>
+                            </button>
                         </div>
                     </div>
 
@@ -1754,6 +1787,262 @@
                             &copy; 2426 - 2026 UNPAD MERCH HUB PORTAL &middot; ESTABLISHED SECURE FRONT END FLAT FILE FORMAT.
                         </div>
                     </footer>
+
+                    {/* CUSTOM MYSQL INTEGRATION MODAL CONSOLE */}
+                    {showMysqlModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 text-left font-sans">
+                            <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in flex flex-col max-h-[85vh] text-slate-800">
+                                
+                                {/* Header */}
+                                <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
+                                    <div className="flex items-center space-x-3">
+                                        <div className="bg-blue-600/25 text-blue-400 p-2 rounded-xl">
+                                            <Icon name="Database" size={18} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-extrabold text-sm sm:text-base font-display">MySQL Integration Console</h3>
+                                            <p className="text-[10px] text-slate-400 font-mono tracking-wide">PENGHUBUNG & SEEDER DATABASE RELASIONAL</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowMysqlModal(false)} className="bg-slate-850 hover:bg-slate-750 text-slate-400 hover:text-white p-1.5 rounded-xl cursor-pointer transition">
+                                        <Icon name="X" size={16} />
+                                    </button>
+                                </div>
+
+                                {/* Body */}
+                                <div className="flex-1 overflow-y-auto p-6 space-y-5 text-left text-xs">
+                                    
+                                    {/* Sub-menu tabs with stateful visual representation */}
+                                    <div className="flex space-x-1.5 bg-slate-100 p-1 rounded-2xl">
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                document.getElementById('tab-setting').style.display = 'block';
+                                                document.getElementById('tab-schema').style.display = 'none';
+                                                document.getElementById('tab-seeder').style.display = 'none';
+                                            }} 
+                                            className="flex-1 py-1.5 px-3 bg-white text-slate-900 rounded-xl font-bold shadow-xs hover:bg-slate-50 transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                        >
+                                            1. API & Koneksi
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                document.getElementById('tab-setting').style.display = 'none';
+                                                document.getElementById('tab-schema').style.display = 'block';
+                                                document.getElementById('tab-seeder').style.display = 'none';
+                                            }} 
+                                            className="flex-1 py-1.5 px-3 hover:bg-white text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                        >
+                                            2. Struktur DDL SQL
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                document.getElementById('tab-setting').style.display = 'none';
+                                                document.getElementById('tab-schema').style.display = 'none';
+                                                document.getElementById('tab-seeder').style.display = 'block';
+                                            }} 
+                                            className="flex-1 py-1.5 px-3 hover:bg-white text-slate-600 hover:text-slate-900 rounded-xl font-bold transition text-center cursor-pointer font-mono text-[10px] uppercase"
+                                        >
+                                            3. Live Seed Data
+                                        </button>
+                                    </div>
+
+                                    {/* Tab 1: Settings */}
+                                    <div id="tab-setting" className="space-y-4">
+                                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex items-start space-x-3">
+                                            <Icon name="Info" size={16} className="text-blue-500 shrink-0 mt-0.5" />
+                                            <div>
+                                                <h4 className="font-bold text-blue-800">Bagaimana Cara Kerja MySQL pada Deploy GitHub?</h4>
+                                                <p className="text-blue-700 text-[11px] leading-relaxed mt-1">
+                                                    GitHub Pages hanya menampung berkas statis (HTML/JS/CSS). Karena browser tidak terhubung langsung ke port TCP MySQL Anda, Anda membutuhkan layanan intermediari **REST API**. Kami telah menyiapkan repositori server node lengkap di file `server-mysql.js`!
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3.5">
+                                            <div className="space-y-1.5">
+                                                <label className="text-[10px] text-slate-400 font-mono font-bold block uppercase tracking-wide">MySQL REST API URL Endpoint</label>
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        type="text" 
+                                                        id="mysql-api-url-input"
+                                                        defaultValue={mysqlApiUrl}
+                                                        placeholder="Contoh: http://localhost:3000" 
+                                                        className="flex-1 bg-slate-50 border rounded-xl px-3 py-2.5 text-slate-850 font-mono focus:outline-hidden" 
+                                                    />
+                                                    <button 
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const inp = document.getElementById('mysql-api-url-input').value;
+                                                            if (!inp) { triggerToast("Masukkan URL terlebih dahulu!"); return; }
+                                                            triggerToast("Mengecek status API...");
+                                                            const testUrl = inp.replace(/\/$/, '') + '/status';
+                                                            try {
+                                                                const res = await fetch(testUrl).catch(() => null);
+                                                                if (res && res.ok) {
+                                                                    triggerToast("Koneksi Sukses! REST API terdeteksi terhubung ke server.");
+                                                                } else {
+                                                                    triggerToast("Gagal: Respon tidak valid dari " + testUrl);
+                                                                }
+                                                            } catch (err) {
+                                                                triggerToast("Gagal terhubung, pastikan server Node Anda berjalan!");
+                                                            }
+                                                        }}
+                                                        className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl font-bold transition font-mono whitespace-nowrap cursor-pointer"
+                                                    >
+                                                        Uji Endpoint
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                                <div>
+                                                    <h5 className="font-bold text-slate-900 text-xs">Aktifkan Hubungan Live REST API</h5>
+                                                    <p className="text-[10px] text-slate-500 mt-0.5 leading-normal">Bila diaktifkan, aplikasi akan mengarahkan semua data auth login, registrasi, dan sinkronisasi produk ke server MySQL.</p>
+                                                </div>
+                                                <div className="relative inline-flex items-center cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        id="mysql-toggle"
+                                                        defaultChecked={mysqlApiEnabled}
+                                                        className="sr-only peer"
+                                                        onChange={(e) => {
+                                                            const enabled = e.target.checked;
+                                                            const url = document.getElementById('mysql-api-url-input').value;
+                                                            updateMysqlSettings(url, enabled);
+                                                        }}
+                                                    />
+                                                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Status Badge */}
+                                            <div className="flex items-center space-x-2">
+                                                <span className="text-[11px] font-semibold text-slate-500">Status Database Server:</span>
+                                                {dbStatus === 'connected' ? (
+                                                    <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● TERHUBUNG LIVE DB</span>
+                                                ) : dbStatus === 'error' ? (
+                                                    <span className="bg-rose-100 text-rose-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● OFFLINE / TIMEOUT</span>
+                                                ) : (
+                                                    <span className="bg-amber-100 text-amber-800 text-[10px] px-2.5 py-1 rounded-full font-bold font-mono tracking-wide flex items-center gap-1">● SIMULASI INTEGRASI RELASIONAL</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Tab 2: SQL DDL Schema */}
+                                    <div id="tab-schema" className="space-y-4" style={{ display: 'none' }}>
+                                        <div className="flex justify-between items-center text-slate-400">
+                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">MySQL Table DDL Script (`schema.sql`)</span>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    const scriptText = document.getElementById('ddl-code-block').innerText;
+                                                    navigator.clipboard.writeText(scriptText);
+                                                    triggerToast("Skema SQL tersalin ke Clipboard!");
+                                                }}
+                                                className="text-blue-500 hover:text-blue-650 font-bold flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg cursor-pointer transition text-[10px] font-mono"
+                                            >
+                                                <Icon name="Copy" size={12} />
+                                                <span>SALIN DDL</span>
+                                            </button>
+                                        </div>
+                                        
+                                        <pre 
+                                            id="ddl-code-block" 
+                                            className="bg-slate-900 border text-slate-300 p-4 rounded-2xl h-64 overflow-y-auto font-mono text-[10px] leading-relaxed text-left opacity-90"
+                                        >
+{`CREATE TABLE users (
+    id VARCHAR(50) PRIMARY KEY,
+    fullName VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    role ENUM('customer', 'staff') NOT NULL DEFAULT 'customer',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE categories (
+    id VARCHAR(50) PRIMARY KEY,
+    categoryName VARCHAR(100) NOT NULL,
+    description TEXT
+);
+
+CREATE TABLE products (
+    id VARCHAR(50) PRIMARY KEY,
+    categoryId VARCHAR(50),
+    productName VARCHAR(255) NOT NULL,
+    description TEXT,
+    price INT NOT NULL,
+    stock INT NOT NULL DEFAULT 0,
+    image TEXT,
+    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE TABLE orders (
+    id VARCHAR(50) PRIMARY KEY,
+    userId VARCHAR(50),
+    totalAmount INT NOT NULL,
+    paymentStatus ENUM('Pending', 'Paid', 'Failed') NOT NULL DEFAULT 'Pending',
+    orderStatus ENUM('Pending Payment', 'Processing', 'Ready for Pickup', 'Completed', 'Cancelled') NOT NULL DEFAULT 'Pending Payment',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+);`}
+                                        </pre>
+                                    </div>
+
+                                    {/* Tab 3: Generated Seeder SQL */}
+                                    <div id="tab-seeder" className="space-y-4" style={{ display: 'none' }}>
+                                        <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl flex items-start space-x-3 text-emerald-850">
+                                            <Icon name="Sparkles" size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                                            <div>
+                                                <h4 className="font-bold text-emerald-800">Dynamic Live SQL Data Exporter</h4>
+                                                <p className="text-emerald-700 text-[11px] leading-relaxed mt-1">
+                                                    Lacak manipulasi data instan Anda! Cuplikan di bawah merupakan kueri SQL `INSERT` otomatis yang dihasilkan langsung berdasarkan keadaan memori terbaru Anda. Eksekusilah di PHPMyAdmin untuk melakukan sinkronisasi instan.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-between items-center text-slate-400">
+                                            <span className="font-mono text-[10px] uppercase font-bold text-slate-500">Live Dynamic MySQL Seed Data</span>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    const seedText = document.getElementById('seeder-code-block').innerText;
+                                                    navigator.clipboard.writeText(seedText);
+                                                    triggerToast("Kueri Seeder tersalin!");
+                                                }}
+                                                className="text-emerald-600 hover:text-emerald-750 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg cursor-pointer transition text-[10px] font-mono"
+                                            >
+                                                <Icon name="Copy" size={12} />
+                                                <span>SALIN SEED</span>
+                                            </button>
+                                        </div>
+
+                                        <pre 
+                                            id="seeder-code-block" 
+                                            className="bg-slate-900 border text-slate-300 p-4 rounded-2xl h-56 overflow-y-auto font-mono text-[10px] leading-relaxed text-left opacity-90"
+                                        >
+                                            {generatedSqlSeed}
+                                        </pre>
+                                    </div>
+                                    
+                                </div>
+
+                                {/* Footer */}
+                                <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
+                                    <span className="text-[10px] text-slate-500 font-medium">Gunakan backend Node Anda pada berkas server-mysql.js untuk sinkronisasi live.</span>
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowMysqlModal(false)}
+                                        className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded-xl uppercase tracking-wider font-mono cursor-pointer transition"
+                                    >
+                                        TUTUP
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* CRUD CATEGORY MODAL DIALOG */}
                     {showCatModal && (
