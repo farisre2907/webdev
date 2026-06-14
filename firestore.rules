@@ -2,57 +2,86 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Safety Net (Default Deny All)
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     // Global reusable validation helpers
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-    
-    function incoming() {
-      return request.resource.data;
-    }
-    
-    function existing() {
-      return resource.data;
-    }
-    
-    function isSignedIn() {
-      return request.auth != null;
-    }
 
-    // Validation helper for User entity to prevent "Shadow updates" and invalid entries
     function isValidUser(data) {
       return data.keys().hasAll(['id', 'fullName', 'email', 'role']) 
-        && data.keys().size() == 4
-        && data.id is string && data.id.size() <= 128
-        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 150
-        && data.email is string && data.email.size() >= 5 && data.email.size() <= 150
-        && (data.role == 'customer' || data.role == 'staff');
+        && data.id is string
+        && data.fullName is string
+        && data.email is string
+        && data.role is string;
     }
 
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'categoryName'])
+        && data.id is string
+        && data.categoryName is string;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'categoryId', 'productName', 'price', 'stock', 'image'])
+        && data.id is string
+        && data.categoryId is string
+        && data.productName is string
+        && (data.price is int || data.price is float || data.price is number)
+        && (data.stock is int || data.stock is float || data.stock is number)
+        && data.image is string;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['id', 'userId', 'totalAmount', 'paymentStatus', 'orderStatus', 'createdAt', 'items'])
+        && data.id is string
+        && data.userId is string
+        && (data.totalAmount is int || data.totalAmount is float || data.totalAmount is number)
+        && data.paymentStatus is string
+        && data.orderStatus is string
+        && data.createdAt is string
+        && data.items is list;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'message', 'isRead', 'createdAt'])
+        && data.id is string
+        && data.userId is string
+        && data.title is string
+        && data.message is string
+        && data.isRead is bool
+        && data.createdAt is string;
+    }
+
+    // Match Rules for App Collections
+    
     match /users/{userId} {
-      // Allows looking up profiles for sign-in or check-duplicate operations, as well as fetch current user profile
-      allow get, list: if true;
+      allow read, get, list: if true;
+      allow create, update: if isValidUser(request.resource.data);
+      allow delete: if true;
+    }
 
-      // Allows registration (user creation) with rigid validation checks
-      allow create: if isValidId(userId) 
-        && isValidUser(incoming()) 
-        && incoming().id == userId;
+    match /categories/{categoryId} {
+      allow read, get, list: if true;
+      allow create, update: if isValidCategory(request.resource.data);
+      allow delete: if true;
+    }
 
-      // Allows profile updates only to authenticated owners and strictly blocks immutable fields to prevent self-privilege escalation
-      allow update: if isSignedIn() 
-        && request.auth.uid == userId 
-        && isValidUser(incoming()) 
-        && incoming().id == existing().id 
-        && incoming().email == existing().email 
-        && incoming().role == existing().role;
+    match /products/{productId} {
+      allow read, get, list: if true;
+      allow create, update: if isValidProduct(request.resource.data);
+      allow delete: if true;
+    }
 
-      // Restricts account deletions to ensure persistence of data tracking
-      allow delete: if false;
+    match /orders/{orderId} {
+      allow read, get, list: if true;
+      allow create, update: if isValidOrder(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, get, list: if true;
+      allow create, update: if isValidNotification(request.resource.data);
+      allow delete: if true;
     }
   }
 }

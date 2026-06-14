@@ -25,12 +25,160 @@
         }
       },
       "required": ["id", "fullName", "email", "role"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category definition.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the category"
+        },
+        "categoryName": {
+          "type": "string",
+          "description": "Name of the category"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the category"
+        }
+      },
+      "required": ["id", "categoryName"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Merchandise product item specifications.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the product"
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "The category ID the product belongs to"
+        },
+        "productName": {
+          "type": "string",
+          "description": "The name of the product"
+        },
+        "description": {
+          "type": "string",
+          "description": "The details or description of the product"
+        },
+        "price": {
+          "type": "number",
+          "description": "The cost of the product item"
+        },
+        "stock": {
+          "type": "number",
+          "description": "The available inventory count"
+        },
+        "image": {
+          "type": "string",
+          "description": "Product illustration/image URL"
+        }
+      },
+      "required": ["id", "categoryId", "productName", "price", "stock", "image"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer transactional order record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Order invoice identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Customer user ID placing the order"
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "Total amount paid/owing"
+        },
+        "paymentStatus": {
+          "type": "string",
+          "description": "Transaction payment status"
+        },
+        "orderStatus": {
+          "type": "string",
+          "description": "Transaction fulfillment status"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of order placement"
+        },
+        "items": {
+          "type": "array",
+          "description": "Order items list"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Checkout telephone number"
+        },
+        "address": {
+          "type": "string",
+          "description": "Fulfillment delivery address"
+        }
+      },
+      "required": ["id", "userId", "totalAmount", "paymentStatus", "orderStatus", "createdAt", "items"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification alerts.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Notification unique ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Target user ID for the alert"
+        },
+        "title": {
+          "type": "string",
+          "description": "Heading banner of notification"
+        },
+        "message": {
+          "type": "string",
+          "description": "Long form alerting message body"
+        },
+        "isRead": {
+          "type": "boolean",
+          "description": "Status level of the notification read receipt"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when notification was sent"
+        }
+      },
+      "required": ["id", "userId", "title", "message", "isRead", "createdAt"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
       "description": "Authenticated user records containing roles and profile details."
+    },
+    "categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Store categories metadata."
+    },
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Campus store merchandise product catalog."
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Merchandise transactions history and invoice logs."
+    },
+    "notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User alerting system logs."
     }
   }
 }

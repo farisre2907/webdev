@@ -48,12 +48,122 @@
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- Local Browser Database Engine (No Firebase / MySQL API Server needed for GitHub Pages) -->
+    <!-- Firebase SDK CDNs (Modular) & High-Performance Custom Compatibility Layer -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            onSnapshot, 
+            getDocs, 
+            setDoc, 
+            updateDoc, 
+            deleteDoc, 
+            writeBatch 
+        } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyCS2YAn7icMQwWmhGYeDB2qALYvZQCudMc",
+          authDomain: "gen-lang-client-0307239137.firebaseapp.com",
+          projectId: "gen-lang-client-0307239137",
+          storageBucket: "gen-lang-client-0307239137.firebasestorage.app",
+          messagingSenderId: "308089398540",
+          appId: "1:308089398540:web:52db0043facaecdeb71529"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const rawDb = getFirestore(app, "ai-studio-ee7cee26-5951-4a6e-a1e6-43a809e2c613");
+
+        window.customFirestoreDb = {
+            collection(collectionPath) {
+                const colRef = collection(rawDb, collectionPath);
+                return {
+                    doc(docId) {
+                        const docRef = doc(rawDb, collectionPath, docId);
+                        return {
+                            ref: docRef,
+                            set(data) {
+                                return setDoc(docRef, data);
+                            },
+                            update(data) {
+                                return updateDoc(docRef, data);
+                            },
+                            delete() {
+                                return deleteDoc(docRef);
+                            }
+                        };
+                    },
+                    onSnapshot(onNext, onError) {
+                        return onSnapshot(colRef, (snapshot) => {
+                            const compatSnapshot = {
+                                forEach(callback) {
+                                    snapshot.forEach((d) => {
+                                        callback({
+                                            id: d.id,
+                                            data() {
+                                                const fields = d.data();
+                                                if (fields && !fields.id) {
+                                                    fields.id = d.id;
+                                                }
+                                                return fields;
+                                            }
+                                        });
+                                    });
+                                }
+                            };
+                            onNext(compatSnapshot);
+                        }, (err) => {
+                            if (onError) onError(err);
+                        });
+                    },
+                    get() {
+                        return getDocs(colRef).then((snapshot) => {
+                            return {
+                                forEach(callback) {
+                                    snapshot.forEach((d) => {
+                                        callback({
+                                            id: d.id,
+                                            data() {
+                                                const fields = d.data();
+                                                if (fields && !fields.id) {
+                                                    fields.id = d.id;
+                                                }
+                                                return fields;
+                                            }
+                                        });
+                                    });
+                                }
+                            };
+                        });
+                    }
+                };
+            },
+            batch() {
+                const batch = writeBatch(rawDb);
+                return {
+                    set(compatDoc, data) {
+                        batch.set(compatDoc.ref, data);
+                    },
+                    delete(compatDoc) {
+                        batch.delete(compatDoc.ref);
+                    },
+                    commit() {
+                        return batch.commit();
+                    }
+                };
+            }
+        };
+    </script>
+
     <!-- Main App Logic -->
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        console.log(`[LOCAL STORAGE DATABASE] Berjalan langsung di GitHub Pages secara mandiri dan offline-first (Tidak membutuhkan server perantara).`);
+        // Firebase Configuration & Initialization (Live Cloud Firestore Synchronization via Custom Compat Layer)
+        const db = window.customFirestoreDb;
+
+        console.log(`[FIREBASE CLOUD DATABASE] Diinisialisasi. Berjalan langsung terintegrasi dengan Live Cloud Firestore (Singkronisasi Multi-Device Aktif).`);
 
         // Custom Icon wrapper to render Lucide CDN icons inside React
         const Icon = ({ name, size = 16, className = "" }) => {
@@ -278,58 +388,146 @@
             const [staffSearchQuery, setStaffSearchQuery] = useState('');
             const [staffOrderFilter, setStaffOrderFilter] = useState('ALL');
 
-            // Auto synchronise with localStorage
-            useEffect(() => { localStorage.setItem('cmh_users', JSON.stringify(users)); }, [users]);
-            useEffect(() => { localStorage.setItem('cmh_current_user', JSON.stringify(currentUser)); }, [currentUser]);
-            useEffect(() => { localStorage.setItem('cmh_categories', JSON.stringify(categories)); }, [categories]);
-            useEffect(() => { localStorage.setItem('cmh_products', JSON.stringify(products)); }, [products]);
+            // Auto synchronise cart with localStorage (Carts are device-local per-session)
             useEffect(() => { localStorage.setItem('cmh_cart', JSON.stringify(cart)); }, [cart]);
-            useEffect(() => { localStorage.setItem('cmh_orders', JSON.stringify(orders)); }, [orders]);
-            useEffect(() => { localStorage.setItem('cmh_notifications', JSON.stringify(notifications)); }, [notifications]);
+            useEffect(() => { localStorage.setItem('cmh_current_user', JSON.stringify(currentUser)); }, [currentUser]);
 
-            // Local Database Control Action
+            // Real-Time live cloud Firestore synchronisation subscription
+            useEffect(() => {
+                // Subscribe to users
+                const unsubscribeUsers = db.collection('users').onSnapshot(snapshot => {
+                    const list = [];
+                    snapshot.forEach(doc => {
+                        list.push(doc.data());
+                    });
+                    if (list.length > 0) {
+                        setUsers(list);
+                    } else {
+                        // Bootstrap if empty
+                        const defaults = [
+                            { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
+                            { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
+                        ];
+                        defaults.forEach(u => db.collection('users').doc(u.id).set(u));
+                    }
+                }, error => console.error("Firestore Users subscription error:", error.message || String(error)));
+
+                // Subscribe to categories
+                const unsubscribeCategories = db.collection('categories').onSnapshot(snapshot => {
+                    const list = [];
+                    snapshot.forEach(doc => {
+                        list.push(doc.data());
+                    });
+                    if (list.length > 0) {
+                        setCategories(list);
+                    } else {
+                        initialCategories.forEach(c => db.collection('categories').doc(c.id).set(c));
+                    }
+                }, error => console.error("Firestore Categories subscription error:", error.message || String(error)));
+
+                // Subscribe to products
+                const unsubscribeProducts = db.collection('products').onSnapshot(snapshot => {
+                    const list = [];
+                    snapshot.forEach(doc => {
+                        list.push(doc.data());
+                    });
+                    if (list.length > 0) {
+                        setProducts(list);
+                    } else {
+                        initialProducts.forEach(p => db.collection('products').doc(p.id).set(p));
+                    }
+                }, error => console.error("Firestore Products subscription error:", error.message || String(error)));
+
+                // Subscribe to orders
+                const unsubscribeOrders = db.collection('orders').onSnapshot(snapshot => {
+                    const list = [];
+                    snapshot.forEach(doc => {
+                        list.push(doc.data());
+                    });
+                    // Sort descending by creation date
+                    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    setOrders(list);
+                }, error => console.error("Firestore Orders subscription error:", error.message || String(error)));
+
+                // Subscribe to notifications
+                const unsubscribeNotifications = db.collection('notifications').onSnapshot(snapshot => {
+                    const list = [];
+                    snapshot.forEach(doc => {
+                        list.push(doc.data());
+                    });
+                    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    setNotifications(list);
+                }, error => console.error("Firestore Notifications subscription error:", error.message || String(error)));
+
+                return () => {
+                    unsubscribeUsers();
+                    unsubscribeCategories();
+                    unsubscribeProducts();
+                    unsubscribeOrders();
+                    unsubscribeNotifications();
+                };
+            }, []);
+
+            // Local Database Control Action using Firestore cloud storage
             const handleResetDatabase = () => {
-                if (window.confirm("Apakah Anda yakin ingin meriset seluruh isi database ke pengaturan awal kampus? Seluruh riwayat transaksi & akun tambahan akan dihapus.")) {
-                    localStorage.removeItem('cmh_users');
-                    localStorage.removeItem('cmh_current_user');
-                    localStorage.removeItem('cmh_categories');
-                    localStorage.removeItem('cmh_products');
-                    localStorage.removeItem('cmh_cart');
-                    localStorage.removeItem('cmh_orders');
-                    localStorage.removeItem('cmh_notifications');
-                    
-                    // Trigger reload of defaults
-                    setUsers([
-                        { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
-                        { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
-                    ]);
-                    setCategories(initialCategories);
-                    setProducts(initialProducts);
-                    setCart([]);
-                    setOrders([{
-                        id: 'ORD-8941',
-                        userId: 'USR-001',
-                        totalAmount: 160000,
-                        paymentStatus: 'Paid',
-                        orderStatus: 'Completed',
-                        createdAt: '2026-06-05T14:30:00Z',
-                        items: [
-                            { id: 'ORI-101', orderId: 'ORD-8941', productId: 'PRD-101', quantity: 1, price: 95000 },
-                            { id: 'ORI-102', orderId: 'ORD-8941', productId: 'PRD-105', quantity: 1, price: 65000 }
-                        ]
-                    }]);
-                    setNotifications([{
-                        id: 'NTF-1',
-                        userId: 'USR-001',
-                        title: 'Pesanan Selesai!',
-                        message: 'Pesanan ORD-8941 Anda telah selesai diambil. Terima kasih telah berbelanja!',
-                        isRead: false,
-                        createdAt: '2026-06-05T16:00:00Z'
-                    }]);
-                    setCurrentUser({ id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' });
-                    
-                    triggerToast("Database berhasil direset kembali ke bawaan sistem!");
-                    navigateTo('home');
+                if (window.confirm("Apakah Anda yakin ingin meriset seluruh isi database Cloud ke pengaturan awal kampus? Seluruh riwayat transaksi & akun tambahan akan dihapus.")) {
+                    const clearCollection = (colName) => {
+                        return db.collection(colName).get().then(qs => {
+                            const batch = db.batch();
+                            qs.forEach(doc => batch.delete(doc.ref));
+                            return batch.commit();
+                        });
+                    };
+
+                    Promise.all([
+                        clearCollection('users'),
+                        clearCollection('categories'),
+                        clearCollection('products'),
+                        clearCollection('orders'),
+                        clearCollection('notifications')
+                    ]).then(() => {
+                        const defaultUsers = [
+                            { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
+                            { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
+                        ];
+                        const defaultOrders = [{
+                            id: 'ORD-8941',
+                            userId: 'USR-001',
+                            totalAmount: 160000,
+                            paymentStatus: 'Paid',
+                            orderStatus: 'Completed',
+                            createdAt: '2026-06-05T14:30:00Z',
+                            items: [
+                                { id: 'ORI-101', orderId: 'ORD-8941', productId: 'PRD-101', quantity: 1, price: 95000 },
+                                { id: 'ORI-102', orderId: 'ORD-8941', productId: 'PRD-105', quantity: 1, price: 65000 }
+                            ]
+                        }];
+                        const defaultNotifs = [{
+                            id: 'NTF-1',
+                            userId: 'USR-001',
+                            title: 'Pesanan Selesai!',
+                            message: 'Pesanan ORD-8941 Anda telah selesai diambil. Terima kasih telah berbelanja!',
+                            isRead: false,
+                            createdAt: '2026-06-05T16:00:00Z'
+                        }];
+
+                        const batch = db.batch();
+                        defaultUsers.forEach(u => batch.set(db.collection('users').doc(u.id), u));
+                        initialCategories.forEach(c => batch.set(db.collection('categories').doc(c.id), c));
+                        initialProducts.forEach(p => batch.set(db.collection('products').doc(p.id), p));
+                        defaultOrders.forEach(o => batch.set(db.collection('orders').doc(o.id), o));
+                        defaultNotifs.forEach(n => batch.set(db.collection('notifications').doc(n.id), n));
+
+                        return batch.commit();
+                    }).then(() => {
+                        setCart([]);
+                        setCurrentUser({ id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' });
+                        triggerToast("Database Cloud berhasil direset ke bawaan sistem!");
+                        navigateTo('home');
+                    }).catch(err => {
+                        console.error(err.message || String(err));
+                        triggerToast("Gagal meriset database Cloud: " + err.message);
+                    });
                 }
             };
 
@@ -341,14 +539,15 @@
 
             const addNotificationLocal = (uId, title, message) => {
                 const newN = {
-                    id: 'NTF-' + Date.now(),
+                    id: 'NTF-' + Date.now() + '-' + Math.floor(Math.random() * 100),
                     userId: uId,
                     title,
                     message,
                     isRead: false,
                     createdAt: new Date().toISOString()
                 };
-                setNotifications(prev => [newN, ...prev]);
+                db.collection('notifications').doc(newN.id).set(newN)
+                  .catch(err => console.error("Error setting notification:", err.message || String(err)));
             };
 
             // Business intelligence metrics computed reactively
@@ -368,17 +567,17 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
-            // Actions: User Management (Client-Side Local Storage Database)
+            // Actions: User Management (Client-Side Local Storage Database with Cloud Security compatibility)
             const handleLogin = (e) => {
                 e.preventDefault();
                 const cleanEmail = loginEmail.trim().toLowerCase();
                 
-                console.log(`[LOCAL DB ENGINE] SELECT * FROM users WHERE email = '${cleanEmail}' AND role = '${loginRole}';`);
+                console.log(`[FIREBASE CLOUD] SELECT * FROM users WHERE email = '${cleanEmail}' AND role = '${loginRole}';`);
                 const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
                 if (matched) {
                     setCurrentUser(matched);
                     triggerToast("Selamat datang kembali, " + matched.fullName + "!");
-                    addNotificationLocal(matched.id, "Login Berhasil", "Masuk berhasil (Database Lokal Terintegrasi).");
+                    addNotificationLocal(matched.id, "Login Berhasil", "Masuk berhasil (Database Cloud Terintegrasi).");
                     navigateTo('home');
                 } else {
                     triggerToast("Email salah atau peran tidak sesuai!");
@@ -395,10 +594,10 @@
                     return;
                 }
 
-                console.log(`[LOCAL DB ENGINE] SELECT id FROM users WHERE email = '${cleanEmail}';`);
+                console.log(`[FIREBASE CLOUD] SELECT id FROM users WHERE email = '${cleanEmail}';`);
                 const exists = users.find(u => u.email.toLowerCase() === cleanEmail);
                 if (exists) {
-                    triggerToast("E-mail sudah terdaftar di database local!");
+                    triggerToast("E-mail sudah terdaftar di database!");
                     return;
                 }
 
@@ -410,13 +609,19 @@
                     role: regRole
                 };
 
-                console.log(`[LOCAL DB ENGINE] INSERT INTO users (id, fullName, email, role) VALUES ('${newUserId}', '${cleanName}', '${cleanEmail}', '${regRole}');`);
+                console.log(`[FIREBASE CLOUD] INSERT INTO users (id, fullName, email, role) VALUES ('${newUserId}', '${cleanName}', '${cleanEmail}', '${regRole}');`);
                 
-                setUsers(prev => [...prev, newU]);
-                setCurrentUser(newU);
-                triggerToast("Pendaftaran Berhasil! Akun terdaftar.");
-                addNotificationLocal(newUserId, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
-                navigateTo('home');
+                db.collection('users').doc(newUserId).set(newU)
+                    .then(() => {
+                        setCurrentUser(newU);
+                        triggerToast("Pendaftaran Berhasil! Akun terdaftar.");
+                        addNotificationLocal(newUserId, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
+                        navigateTo('home');
+                    })
+                    .catch(err => {
+                        console.error(err.message || String(err));
+                        triggerToast("Pendaftaran gagal: " + err.message);
+                    });
             };
 
             // Actions: Cart operations
@@ -506,34 +711,46 @@
                     phone: checkoutPhone
                 };
 
-                // Commit stock deduction & insert order
-                setProducts(nextProducts);
-                setOrders(prev => [newOrder, ...prev]);
-                
-                // Clear state
-                setCheckoutAddress('');
-                setCheckoutPhone('');
-                
-                triggerToast("Pesanan Berhasil Dibuat! Invoice #" + orderId);
-                navigateTo('qris', { orderId });
+                // Commit stock deduction & insert order atomically in Firestore Batch
+                const batch = db.batch();
+                nextProducts.forEach(p => {
+                    if (cart.some(ci => ci.productId === p.id)) {
+                        batch.set(db.collection('products').doc(p.id), p);
+                    }
+                });
+                batch.set(db.collection('orders').doc(orderId), newOrder);
+
+                batch.commit()
+                    .then(() => {
+                        // Clear state
+                        setCheckoutAddress('');
+                        setCheckoutPhone('');
+                        triggerToast("Pesanan Berhasil Dibuat! Invoice #" + orderId);
+                        navigateTo('qris', { orderId });
+                    })
+                    .catch(err => {
+                        console.error(err.message || String(err));
+                        triggerToast("Gagal memproses pesanan: " + err.message);
+                    });
             };
 
             const runPaymentSimulation = (orderId) => {
                 setIsSimulatingPayment(true);
                 setTimeout(() => {
-                    setOrders(prev => prev.map(o => {
-                        if (o.id === orderId) {
-                            // Update order payment status
-                            addNotificationLocal(o.userId, "Pembayaran Diterima!", `Pembayaran untuk order ${o.id} sebesar Rp ${o.totalAmount.toLocaleString('id-ID')} telah sukses dikonfirmasi via QRIS.`);
-                            return { ...o, paymentStatus: 'Paid', orderStatus: 'Processing' };
-                        }
-                        return o;
-                    }));
-
-                    // Fire staff alert
-                    users.filter(u => u.role === 'staff').forEach(st => {
-                        addNotificationLocal(st.id, "Pesanan Baru", `Antrean baru masuk #${orderId}. Siap diproses.`);
-                    });
+                    const orderToUpdate = orders.find(o => o.id === orderId);
+                    if (orderToUpdate) {
+                        db.collection('orders').doc(orderId).update({
+                            paymentStatus: 'Paid',
+                            orderStatus: 'Processing'
+                        }).then(() => {
+                            addNotificationLocal(orderToUpdate.userId, "Pembayaran Diterima!", `Pembayaran untuk order ${orderId} sebesar Rp ${orderToUpdate.totalAmount.toLocaleString('id-ID')} telah sukses dikonfirmasi via QRIS.`);
+                            
+                            // Fire staff alert
+                            users.filter(u => u.role === 'staff').forEach(st => {
+                                addNotificationLocal(st.id, "Pesanan Baru", `Antrean baru masuk #${orderId}. Siap diproses.`);
+                            });
+                        }).catch(err => console.error(err.message || String(err)));
+                    }
 
                     // Play audio warning simulation
                     try {
@@ -561,18 +778,20 @@
             const saveProduct = (e) => {
                 e.preventDefault();
                 if (editingProduct) {
-                    setProducts(prev => prev.map(p => p.id === editingProduct.id ? {
-                        ...p,
+                    const updatedProduct = {
+                        id: editingProduct.id,
                         productName: pName,
                         categoryId: pCat,
                         price: Number(pPrice),
                         stock: Number(pStock),
                         image: pImage,
                         description: pDesc
-                    } : p));
-                    triggerToast("Merchandise diperbarui.");
+                    };
+                    db.collection('products').doc(editingProduct.id).set(updatedProduct)
+                        .then(() => triggerToast("Merchandise diperbarui."))
+                        .catch(err => console.error(err.message || String(err)));
                 } else {
-                    const newId = 'PRD-' + (100 + products.length + 1);
+                    const newId = 'PRD-' + Date.now();
                     const newP = {
                         id: newId,
                         categoryId: pCat,
@@ -582,64 +801,77 @@
                         image: pImage || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=600',
                         description: pDesc
                     };
-                    setProducts(prev => [newP, ...prev]);
-                    triggerToast("Merchandise baru ditambahkan.");
+                    db.collection('products').doc(newId).set(newP)
+                        .then(() => triggerToast("Merchandise baru ditambahkan."))
+                        .catch(err => console.error(err.message || String(err)));
                 }
                 setShowProductModal(false);
             };
 
             const deleteProduct = (pId) => {
                 if (confirm("Hapus merchandise ini?")) {
-                    setProducts(prev => prev.filter(p => p.id !== pId));
-                    triggerToast("Merchandise dihapus.");
+                    db.collection('products').doc(pId).delete()
+                        .then(() => triggerToast("Merchandise dihapus."))
+                        .catch(err => console.error(err.message || String(err)));
                 }
             };
 
             const saveCategory = (e) => {
                 e.preventDefault();
                 if (editingCat) {
-                    setCategories(prev => prev.map(c => c.id === editingCat.id ? {
-                        ...c,
+                    const updatedCat = {
+                        id: editingCat.id,
                         categoryName: cName,
                         description: cDesc
-                    } : c));
-                    triggerToast("Kategori diperbarui.");
+                    };
+                    db.collection('categories').doc(editingCat.id).set(updatedCat)
+                        .then(() => triggerToast("Kategori diperbarui."))
+                        .catch(err => console.error(err.message || String(err)));
                 } else {
-                    const newId = 'CAT-' + (200 + categories.length + 1);
-                    setCategories(prev => [...prev, { id: newId, categoryName: cName, description: cDesc }]);
-                    triggerToast("Kategori baru ditambahkan.");
+                    const newId = 'CAT-' + Date.now();
+                    const newCat = {
+                        id: newId,
+                        categoryName: cName,
+                        description: cDesc
+                    };
+                    db.collection('categories').doc(newId).set(newCat)
+                        .then(() => triggerToast("Kategori baru ditambahkan."))
+                        .catch(err => console.error(err.message || String(err)));
                 }
                 setShowCatModal(false);
             };
 
             const deleteCategory = (cId) => {
                 if (confirm("Hapus kategori ini?")) {
-                    setCategories(prev => prev.filter(c => c.id !== cId));
-                    triggerToast("Kategori dihapus.");
+                    db.collection('categories').doc(cId).delete()
+                        .then(() => triggerToast("Kategori dihapus."))
+                        .catch(err => console.error(err.message || String(err)));
                 }
             };
 
             const updateStatus = (orderId, nextStatus) => {
-                setOrders(prev => prev.map(o => {
-                    if (o.id === orderId) {
-                        let title = "Status Update";
-                        let msg = `Pesanan #${orderId} telah diperbarui ke status: ${nextStatus}.`;
-                        if (nextStatus === 'Ready for Pickup') {
-                            title = "Siap Diambil! 📦";
-                            msg = `Hore! Pesanan #${orderId} telah siap diambil di Unmerch Corner. Tunjukkan halaman order saat mengambil.`;
-                        } else if (nextStatus === 'Completed') {
-                            title = "Pesanan Selesai";
-                            msg = `Metode penyerahan order #${orderId} telah tervalidasi selesai dilakukan.`;
-                        } else if (nextStatus === 'Cancelled') {
-                            title = "Pesanan Dibatalkan ❌";
-                            msg = `Pesanan #${orderId} dibatalkan oleh Admin.`;
-                        }
-                        addNotificationLocal(o.userId, title, msg);
-                        return { ...o, orderStatus: nextStatus };
+                const currentOrder = orders.find(o => o.id === orderId);
+                if (currentOrder) {
+                    let title = "Status Update";
+                    let msg = `Pesanan #${orderId} telah diperbarui ke status: ${nextStatus}.`;
+                    if (nextStatus === 'Ready for Pickup') {
+                        title = "Siap Diambil! 📦";
+                        msg = `Hore! Pesanan #${orderId} telah siap diambil di Unmerch Corner. Tunjukkan halaman order saat mengambil.`;
+                    } else if (nextStatus === 'Completed') {
+                        title = "Pesanan Selesai";
+                        msg = `Metode penyerahan order #${orderId} telah tervalidasi selesai dilakukan.`;
+                    } else if (nextStatus === 'Cancelled') {
+                        title = "Pesanan Dibatalkan ❌";
+                        msg = `Pesanan #${orderId} dibatalkan oleh Admin.`;
                     }
-                    return o;
-                }));
-                triggerToast("Order #" + orderId + " diperbarui ke: " + nextStatus);
+
+                    db.collection('orders').doc(orderId).update({ orderStatus: nextStatus })
+                        .then(() => {
+                            addNotificationLocal(currentOrder.userId, title, msg);
+                            triggerToast("Order #" + orderId + " diperbarui ke: " + nextStatus);
+                        })
+                        .catch(err => console.error(err.message || String(err)));
+                }
             };
 
             // Computed Catalog products with dynamic react memo
@@ -2641,7 +2873,15 @@ return (
 
         const container = document.getElementById('root');
         const root = ReactDOM.createRoot(container);
-        root.render(<App />);
+        
+        function mountApp() {
+            if (window.customFirestoreDb) {
+                root.render(<App />);
+            } else {
+                setTimeout(mountApp, 50);
+            }
+        }
+        mountApp();
     </script>
 </body>
 </html>
