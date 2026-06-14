@@ -101,6 +101,7 @@
                                     snapshot.forEach((d) => {
                                         callback({
                                             id: d.id,
+                                            ref: { ref: doc(rawDb, collectionPath, d.id) },
                                             data() {
                                                 const fields = d.data();
                                                 if (fields && !fields.id) {
@@ -124,6 +125,7 @@
                                     snapshot.forEach((d) => {
                                         callback({
                                             id: d.id,
+                                            ref: { ref: doc(rawDb, collectionPath, d.id) },
                                             data() {
                                                 const fields = d.data();
                                                 if (fields && !fields.id) {
@@ -159,6 +161,24 @@
     <!-- Main App Logic -->
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
+
+        // Safe Stringify function to handle circular references safely
+        const safeJsonStringify = (obj, space = 2) => {
+            try {
+                const seen = new WeakSet();
+                return JSON.stringify(obj, (key, value) => {
+                    if (typeof value === "object" && value !== null) {
+                        if (seen.has(value)) {
+                            return "[Circular]";
+                        }
+                        seen.add(value);
+                    }
+                    return value;
+                }, space);
+            } catch (e) {
+                return "Error stringifying: " + e.message;
+            }
+        };
 
         // Firebase Configuration & Initialization (Live Cloud Firestore Synchronization via Custom Compat Layer)
         const db = window.customFirestoreDb;
@@ -2016,7 +2036,7 @@ return (
                                                                     };
                                                                 }
 
-                                                                setApiConsoleOutput(`${traceHeader}\nRESPONSE PAYLOAD:\n${JSON.stringify(respBody, null, 4)}`);
+                                                                setApiConsoleOutput(`${traceHeader}\nRESPONSE PAYLOAD:\n${safeJsonStringify(respBody, 4)}`);
                                                                 triggerToast("API call simulated successfully via " + backendEngine.toUpperCase() + "!");
                                                             }}
                                                             className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs text-center cursor-pointer transition uppercase tracking-wide"
@@ -2743,7 +2763,7 @@ return (
                                                         orders,
                                                         notifications
                                                     };
-                                                    navigator.clipboard.writeText(JSON.stringify(rawMemory, null, 2));
+                                                    navigator.clipboard.writeText(safeJsonStringify(rawMemory, 2));
                                                     triggerToast("Raw JSON tersalin!");
                                                 }}
                                                 className="text-emerald-600 hover:text-emerald-750 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg cursor-pointer transition text-[10px] font-mono"
@@ -2757,7 +2777,7 @@ return (
                                             id="seeder-code-block" 
                                             className="bg-slate-900 border text-slate-300 p-4 rounded-2xl h-56 overflow-y-auto font-mono text-[10px] leading-relaxed text-left opacity-90"
                                         >
-                                            {JSON.stringify({ users, products, categories, orders }, null, 2)}
+                                            {safeJsonStringify({ users, products, categories, orders }, 2)}
                                         </pre>
                                     </div>
 
