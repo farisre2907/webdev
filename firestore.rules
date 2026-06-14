@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (Default Deny All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global reusable validation helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Validation helper for User entity to prevent "Shadow updates" and invalid entries
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'fullName', 'email', 'role']) 
+        && data.keys().size() == 4
+        && data.id is string && data.id.size() <= 128
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 150
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 150
+        && (data.role == 'customer' || data.role == 'staff');
+    }
+
+    match /users/{userId} {
+      // Allows looking up profiles for sign-in or check-duplicate operations, as well as fetch current user profile
+      allow get, list: if true;
+
+      // Allows registration (user creation) with rigid validation checks
+      allow create: if isValidId(userId) 
+        && isValidUser(incoming()) 
+        && incoming().id == userId;
+
+      // Allows profile updates only to authenticated owners and strictly blocks immutable fields to prevent self-privilege escalation
+      allow update: if isSignedIn() 
+        && request.auth.uid == userId 
+        && isValidUser(incoming()) 
+        && incoming().id == existing().id 
+        && incoming().email == existing().email 
+        && incoming().role == existing().role;
+
+      // Restricts account deletions to ensure persistence of data tracking
+      allow delete: if false;
+    }
+  }
+}

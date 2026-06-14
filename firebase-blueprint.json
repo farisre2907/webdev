@@ -1,0 +1,36 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account registration and login profiles for Unpad Merch Hub.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the registered user"
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Full name of the user"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "E-mail address used for authentication and logging in"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["customer", "staff"],
+          "description": "User role access tier"
+        }
+      },
+      "required": ["id", "fullName", "email", "role"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Authenticated user records containing roles and profile details."
+    }
+  }
+}

@@ -48,9 +48,65 @@
     <!-- Lucide Icons CDN -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- Firebase Compat SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
     <!-- Main App Logic -->
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            projectId: "gen-lang-client-0307239137",
+            appId: "1:308089398540:web:52db0043facaecdeb71529",
+            apiKey: "AIzaSyCS2YAn7icMQwWmhGYeDB2qALYvZQCudMc",
+            authDomain: "gen-lang-client-0307239137.firebaseapp.com",
+            firestoreDatabaseId: "ai-studio-ee7cee26-5951-4a6e-a1e6-43a809e2c613",
+            storageBucket: "gen-lang-client-0307239137.firebasestorage.app",
+            messagingSenderId: "308089398540"
+        };
+
+        // Initialize Firebase
+        let db = null;
+        try {
+            if (window.firebase) {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                const app = firebase.app();
+                db = app.firestore(firebaseConfig.firestoreDatabaseId);
+            } else {
+                console.warn("Firebase SDK was not loaded yet");
+            }
+        } catch (err) {
+            console.error("Firebase Initialization Error:", err);
+        }
+
+        const OperationType = {
+            CREATE: 'create',
+            UPDATE: 'update',
+            DELETE: 'delete',
+            LIST: 'list',
+            GET: 'get',
+            WRITE: 'write',
+        };
+
+        function handleFirestoreError(error, operationType, path) {
+            const errInfo = {
+                error: error instanceof Error ? error.message : String(error),
+                authInfo: {
+                    userId: null,
+                    email: null,
+                    emailVerified: null,
+                    isAnonymous: null
+                },
+                operationType,
+                path
+            };
+            console.error('Firestore Error: ', JSON.stringify(errInfo));
+            return errInfo.error;
+        }
 
         // Custom Icon wrapper to render Lucide CDN icons inside React
         const Icon = ({ name, size = 16, className = "" }) => {
@@ -228,6 +284,45 @@
             useEffect(() => { localStorage.setItem('cmh_orders', JSON.stringify(orders)); }, [orders]);
             useEffect(() => { localStorage.setItem('cmh_notifications', JSON.stringify(notifications)); }, [notifications]);
 
+            // Sync/seed users from Firestore on mount
+            useEffect(() => {
+                const loadUsersFromFirestore = async () => {
+                    if (!db) {
+                        console.warn("Firestore database container is null");
+                        return;
+                    }
+                    try {
+                        const snapshot = await db.collection('users').get().catch(err => {
+                            handleFirestoreError(err, OperationType.LIST, 'users');
+                            throw err;
+                        });
+                        if (snapshot.empty) {
+                            console.log("Database contains no users. Seeding default accounts...");
+                            const defaults = [
+                                { id: 'USR-001', fullName: 'Faris Rifqy', email: 'customer@campus.com', role: 'customer' },
+                                { id: 'USR-002', fullName: 'Ruben David', email: 'staff@campus.com', role: 'staff' },
+                            ];
+                            for (const defaultUser of defaults) {
+                                await db.collection('users').doc(defaultUser.id).set(defaultUser).catch(err => {
+                                    handleFirestoreError(err, OperationType.CREATE, `users/${defaultUser.id}`);
+                                });
+                            }
+                            setUsers(defaults);
+                        } else {
+                            const loaded = [];
+                            snapshot.forEach(doc => {
+                                loaded.push(doc.data());
+                            });
+                            setUsers(loaded);
+                        }
+                    } catch (err) {
+                        console.error("Error synchronizing users with Firebase:", err);
+                    }
+                };
+                
+                loadUsersFromFirestore();
+            }, []);
+
             // Toast helper
             const triggerToast = (msg) => {
                 setToastMessage(msg);
@@ -264,37 +359,116 @@
             };
 
             // Actions: User Management
-            const handleLogin = (e) => {
+            const handleLogin = async (e) => {
                 e.preventDefault();
-                const matched = users.find(u => u.email.toLowerCase() === loginEmail.toLowerCase() && u.role === loginRole);
-                if (matched) {
-                    setCurrentUser(matched);
-                    triggerToast("Selamat datang kembali, " + matched.fullName + "!");
-                    addNotificationLocal(matched.id, "Login Berhasil", "Anda berhasil login kembali ke Unpad Merch Hub.");
-                    navigateTo('home');
-                } else {
-                    triggerToast("Email salah atau peran tidak sesuai!");
+                const cleanEmail = loginEmail.trim().toLowerCase();
+                
+                if (!db) {
+                    // Fallback to local memory if database has initialization issues
+                    const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
+                    if (matched) {
+                        setCurrentUser(matched);
+                        triggerToast("Selamat datang kembali, " + matched.fullName + " (Offline Mode)!");
+                        navigateTo('home');
+                    } else {
+                        triggerToast("Database tidak terhubung & email salah!");
+                    }
+                    return;
+                }
+
+                try {
+                    triggerToast("Memverifikasi kredensial...");
+                    const snapshot = await db.collection('users')
+                        .where('email', '==', cleanEmail)
+                        .where('role', '==', loginRole)
+                        .get()
+                        .catch(err => {
+                            handleFirestoreError(err, OperationType.LIST, 'users');
+                            throw err;
+                        });
+
+                    if (!snapshot.empty) {
+                        const matched = snapshot.docs[0].data();
+                        setCurrentUser(matched);
+                        triggerToast("Selamat datang kembali, " + matched.fullName + "!");
+                        addNotificationLocal(matched.id, "Login Berhasil (Firebase)", "Anda berhasil login kembali ke Unpad Merch Hub via Cloud Firestore.");
+                        navigateTo('home');
+                    } else {
+                        triggerToast("Email salah atau peran tidak sesuai!");
+                    }
+                } catch (err) {
+                    console.error("Firebase Login failed:", err);
+                    // Fallback to local memory
+                    const matched = users.find(u => u.email.toLowerCase() === cleanEmail && u.role === loginRole);
+                    if (matched) {
+                        setCurrentUser(matched);
+                        triggerToast("Login Berhasil (Sesi Lokal): " + matched.fullName);
+                        navigateTo('home');
+                    } else {
+                        triggerToast("Koneksi gagal & email salah: " + err.message);
+                    }
                 }
             };
 
-            const handleRegister = (e) => {
+            const handleRegister = async (e) => {
                 e.preventDefault();
-                const exists = users.find(u => u.email.toLowerCase() === regEmail.toLowerCase());
-                if (exists) {
-                    triggerToast("Email sudah terdaftar!");
+                const cleanEmail = regEmail.trim().toLowerCase();
+                const cleanName = regName.trim();
+
+                if (cleanName.length < 2) {
+                    triggerToast("Nama minimal harus 2 karakter!");
                     return;
                 }
-                const newU = {
-                    id: 'USR-' + (100 + users.length + 1),
-                    fullName: regName,
-                    email: regEmail,
-                    role: regRole
-                };
-                setUsers(prev => [...prev, newU]);
-                setCurrentUser(newU);
-                triggerToast("Pendaftaran Berhasil! Selamat datang.");
-                addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + regName + ", selamat bergabung di hub merchandise kebanggaan Unpad.");
-                navigateTo('home');
+
+                if (!db) {
+                    triggerToast("Firebase Firestore tidak terintegrasi dengan benar.");
+                    return;
+                }
+
+                try {
+                    triggerToast("Membuat akun baru di cloud...");
+                    // 1. Check if email already registered in firestore
+                    const snapshot = await db.collection('users')
+                        .where('email', '==', cleanEmail)
+                        .get()
+                        .catch(err => {
+                            handleFirestoreError(err, OperationType.LIST, 'users');
+                            throw err;
+                        });
+
+                    if (!snapshot.empty) {
+                        triggerToast("E-mail sudah terdaftar di database cloud!");
+                        return;
+                    }
+
+                    // 2. Insert document
+                    const newUserId = 'USR-' + Date.now();
+                    const newU = {
+                        id: newUserId,
+                        fullName: cleanName,
+                        email: cleanEmail,
+                        role: regRole
+                    };
+
+                    await db.collection('users').doc(newUserId).set(newU).catch(err => {
+                        handleFirestoreError(err, OperationType.CREATE, `users/${newUserId}`);
+                        throw err;
+                    });
+
+                    // 3. Update local state
+                    setUsers(prev => {
+                        if (prev.some(u => u.id === newUserId)) return prev;
+                        return [...prev, newU];
+                    });
+                    setCurrentUser(newU);
+
+                    triggerToast("Pendaftaran Berhasil! Selamat datang.");
+                    addNotificationLocal(newU.id, "Akun Baru Dibuat", "Halo " + cleanName + ", selamat bergabung di hub merchandise kebanggaan Unpad via cloud database.");
+                    navigateTo('home');
+                } catch (err) {
+                    console.error("Firebase registration failed:", err);
+                    triggerToast("Pendaftaran gagal: " + err.message);
+                }
             };
 
             // Actions: Cart operations
